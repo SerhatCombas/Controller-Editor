@@ -361,7 +361,7 @@ class TestSmokeEndToEnd(unittest.TestCase):
             sample_count=50,
         )
         self.assertEqual(len(result.time), 50)
-        self.assertEqual(len(result.responses), 5)
+        self.assertEqual(len(result.responses), 6)
 
     @unittest.skipUnless(_SCIPY_AVAILABLE, "scipy not installed in this sandbox")
     def test_both_backends_agree_on_body_displacement_sign(self):

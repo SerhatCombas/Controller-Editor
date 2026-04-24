@@ -236,6 +236,13 @@ class QuarterCarNumericBackend:
                 for state_id, coefficient in zip(QuarterCarBackendContract.STATE_ORDER, c_row)
                 if coefficient != 0.0
             ],
+            # Analytical numeric backend derives every output from the model's
+            # closed-form equations, so all outputs are TF-expressible. These
+            # fields are included so the trace schema matches SymbolicStateSpaceBackend
+            # (which may set supported_for_tf=False when a symbolic output requires
+            # unavailable pipeline features like D-feedthrough).
+            "supported_for_tf": True,
+            "unsupported_reason": None,
         }
 
 

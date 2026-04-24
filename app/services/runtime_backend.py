@@ -310,6 +310,7 @@ class SymbolicStateSpaceRuntimeBackend:
         "suspension_deflection",
         "body_acceleration",
         "tire_deflection",
+        "suspension_force",
     ]
 
     def __init__(
