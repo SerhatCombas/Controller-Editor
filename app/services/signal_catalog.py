@@ -58,6 +58,7 @@ TEMPLATE_SIGNAL_CATALOGS: dict[str, TemplateSignalCatalog] = {
             SimulationSignalDefinition("suspension_deflection", "Suspension deflection", color="#2e7d32", unit="m"),
             SimulationSignalDefinition("body_acceleration", "Body acceleration", color="#7b1fa2", unit="m/s²"),
             SimulationSignalDefinition("tire_deflection", "Tire deflection", color="#c62828", unit="m"),
+            SimulationSignalDefinition("suspension_force", "Suspension force", color="#00838f", unit="N"),
         ),
     ),
     "single_mass": TemplateSignalCatalog(

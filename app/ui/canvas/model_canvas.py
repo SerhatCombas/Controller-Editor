@@ -368,6 +368,16 @@ class ModelCanvas(QWidget):
 
     def update_visualization(self, data: dict[str, object]) -> None:
         self._animation.update(data)
+        runtime = data.get("runtime_outputs") or {}
+        has_motion = any(
+            abs(float(v)) > 1e-9
+            for v in runtime.values()
+            if isinstance(v, (int, float))
+        )
+        if not has_motion:
+            self._scene_animation_result = None
+            self.update()
+            return
         template_id = str(self._animation.get("template_id") or self.workspace_template_hint())
         self._scene_animation_result = self._scene_animation_mapper.map(
             SceneAnimationContext(

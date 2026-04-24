@@ -113,6 +113,12 @@ class QuarterCarModel:
         elif output_signal == "tire_deflection":
             c = np.array([[0.0, 0.0, 1.0, 0.0]], dtype=float)
             d = np.array([[0.0, -1.0]], dtype=float)
+        elif output_signal == "suspension_force":
+            # F_s = k_s · (x_body − x_wheel) — purely algebraic, no direct feedthrough
+            # State order: [x_body_mass, v_body_mass, x_wheel_mass, v_wheel_mass]
+            ks = p.suspension_spring
+            c = np.array([[ks, 0.0, -ks, 0.0]], dtype=float)
+            d = np.array([[0.0, 0.0]], dtype=float)
         else:
             raise KeyError(f"Unknown output signal: {output_signal}")
         return c, d
@@ -132,4 +138,5 @@ class QuarterCarModel:
             "suspension_deflection": state.body_displacement - state.wheel_displacement,
             "body_acceleration": body_acceleration,
             "tire_deflection": state.wheel_displacement - road_height,
+            "suspension_force": suspension_force,
         }

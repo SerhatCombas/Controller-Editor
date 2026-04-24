@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 from app.core.graph.system_graph import SystemGraph
+from app.core.symbolic.output_mapper import OutputMapper
 from app.core.symbolic.symbolic_system import ReducedODESystem, StateSpaceModel, SymbolicSystem
 
 
 class StateSpaceBuilder:
-    """Creates linear state-space matrices from reduced ODE form."""
+    """Creates linear state-space matrices from reduced ODE form.
+
+    Wave 3B update: delegates all C/D row construction to ``OutputMapper``,
+    which is now the single authoritative source for probe → state-space
+    mapping.  The graph is threaded through so that force probes (spring,
+    damper) can resolve their connected DOFs without duplicating that logic
+    here.
+
+    Probes that ``OutputMapper`` cannot express (``supported_for_tf=False``)
+    still appear in ``output_variables`` with all-zero C/D rows; callers
+    should inspect ``output_trace[i]["supported_for_tf"]`` before using the
+    row for frequency-domain analysis.
+    """
 
     def build(
         self,
@@ -13,21 +26,32 @@ class StateSpaceBuilder:
         reduced_system: ReducedODESystem,
         symbolic_system: SymbolicSystem | None = None,
     ) -> StateSpaceModel:
+        mapper = OutputMapper()
         output_variables: list[str] = []
         c_matrix: list[list[float]] = []
         d_matrix: list[list[float]] = []
-        output_records = reduced_system.metadata.get("output_records", {})
-        state_index_lookup = reduced_system.metadata.get("state_index_lookup", {})
+        output_trace: list[dict[str, object]] = []
 
-        for probe_id in graph.probes:
+        for probe_id, probe in graph.probes.items():
+            expr = mapper.map(probe, reduced_system, graph)
             output_variables.append(probe_id)
-            c_row, d_row = self._probe_row(
-                reduced_system,
-                output_record=output_records.get(probe_id, {}),
-                symbolic_system=symbolic_system,
-            )
-            c_matrix.append(c_row)
-            d_matrix.append(d_row)
+            c_matrix.append(list(expr.c_row))
+            d_matrix.append(list(expr.d_row))
+            output_trace.append({
+                "output_id": probe_id,
+                "origin_layer": "state_space_builder",
+                "source_type": (
+                    "relative_probe"
+                    if getattr(probe, "reference_component_id", None)
+                    else "probe"
+                ),
+                "target_component_id": getattr(probe, "target_component_id", None),
+                "reference_component_id": getattr(probe, "reference_component_id", None),
+                "quantity": getattr(probe, "quantity", None),
+                "state_columns": list(expr.contributing_state_names),
+                "supported_for_tf": expr.supported_for_tf,
+                "unsupported_reason": expr.unsupported_reason,
+            })
 
         return StateSpaceModel(
             a_matrix=reduced_system.first_order_a,
@@ -40,81 +64,6 @@ class StateSpaceBuilder:
             metadata={
                 "builder": "StateSpaceBuilder",
                 "linear": True,
-                "output_trace": [
-                    {
-                        "output_id": output_id,
-                        "origin_layer": "state_space_builder",
-                        "source_type": output_records.get(output_id, {}).get("reference_component_id") and "relative_probe" or "probe",
-                        "target_component_id": output_records.get(output_id, {}).get("target_component_id"),
-                        "reference_component_id": output_records.get(output_id, {}).get("reference_component_id"),
-                        "quantity": output_records.get(output_id, {}).get("quantity"),
-                        "state_columns": [
-                            state_id
-                            for state_id, state_idx in state_index_lookup.items()
-                            if state_idx < len(c_matrix[idx]) and c_matrix[idx][state_idx] != 0.0
-                        ],
-                    }
-                    for idx, output_id in enumerate(output_variables)
-                ],
+                "output_trace": output_trace,
             },
         )
-
-    def _probe_row(
-        self,
-        reduced_system: ReducedODESystem,
-        *,
-        output_record: dict[str, object],
-        symbolic_system: SymbolicSystem | None,
-    ) -> tuple[list[float], list[float]]:
-        state_count = len(reduced_system.state_variables)
-        input_count = len(reduced_system.input_variables)
-        c_row = [0.0] * state_count
-        d_row = [0.0] * input_count
-        dof = len(reduced_system.node_order)
-        node_index = {node_id: idx for idx, node_id in enumerate(reduced_system.node_order)}
-        component_records = reduced_system.metadata.get("component_records", {})
-
-        target_component_id = output_record.get("target_component_id")
-        reference_component_id = output_record.get("reference_component_id")
-        quantity = output_record.get("quantity")
-
-        if target_component_id is None:
-            return c_row, d_row
-
-        if reference_component_id is not None:
-            target_record = component_records.get(target_component_id, {})
-            reference_record = component_records.get(reference_component_id, {})
-            target_node = target_record.get("port_nodes", {}).get("port_a")
-            reference_node = reference_record.get("port_nodes", {}).get("port_a")
-            if target_node in node_index:
-                c_row[node_index[target_node]] = 1.0
-            if reference_node in node_index:
-                c_row[node_index[reference_node]] = -1.0
-            elif reference_record.get("metadata", {}).get("role") == "source":
-                if reference_record.get("metadata", {}).get("source_kind", "displacement") == "displacement":
-                    for input_idx, input_name in enumerate(reduced_system.input_variables):
-                        if input_name == f"u_{reference_component_id}":
-                            d_row[input_idx] = -1.0
-            return c_row, d_row
-
-        target_record = component_records.get(target_component_id, {})
-        target_node = target_record.get("port_nodes", {}).get("port_a")
-
-        if quantity == "displacement" and target_record.get("type") in {"Mass", "Wheel"}:
-            if target_node in node_index:
-                c_row[node_index[target_node]] = 1.0
-        elif quantity == "acceleration" and target_record.get("type") in {"Mass", "Wheel"}:
-            if target_node in node_index:
-                row_idx = node_index[target_node] + dof
-                c_row = list(reduced_system.first_order_a[row_idx])
-                d_row = list(reduced_system.first_order_b[row_idx])
-        elif quantity == "force" and target_record.get("type") == "Spring":
-            node_a = target_record.get("port_nodes", {}).get("port_a")
-            node_b = target_record.get("port_nodes", {}).get("port_b")
-            stiffness = target_record.get("parameters", {}).get("stiffness", 0.0)
-            if node_a in node_index:
-                c_row[node_index[node_a]] += stiffness
-            if node_b in node_index:
-                c_row[node_index[node_b]] -= stiffness
-
-        return c_row, d_row

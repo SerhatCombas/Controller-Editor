@@ -74,6 +74,7 @@ class QuarterCarBackendContract:
         "suspension_deflection",
         "body_acceleration",
         "tire_deflection",
+        "suspension_force",
     ]
     OUTPUT_LABELS = {
         "body_displacement": "Body displacement",
@@ -81,6 +82,7 @@ class QuarterCarBackendContract:
         "suspension_deflection": "Suspension deflection",
         "body_acceleration": "Body acceleration",
         "tire_deflection": "Tire deflection",
+        "suspension_force": "Suspension force",
     }
     INPUT_LABELS = {
         "road_displacement": "Road displacement r(t)",
@@ -194,6 +196,7 @@ class QuarterCarNumericBackend:
             "suspension_deflection": "wheel_mass",
             "body_acceleration": None,
             "tire_deflection": "road_source",
+            "suspension_force": None,
         }
         target_map = {
             "body_displacement": "body_mass",
@@ -201,6 +204,7 @@ class QuarterCarNumericBackend:
             "suspension_deflection": "body_mass",
             "body_acceleration": "body_mass",
             "tire_deflection": "wheel_mass",
+            "suspension_force": "suspension_spring",
         }
         quantity_map = {
             "body_displacement": "displacement",
@@ -208,6 +212,7 @@ class QuarterCarNumericBackend:
             "suspension_deflection": "displacement",
             "body_acceleration": "acceleration",
             "tire_deflection": "displacement",
+            "suspension_force": "force",
         }
         return {
             "output_id": output_name,
