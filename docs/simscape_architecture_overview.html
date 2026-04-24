@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simscape-Style Architecture Overview</title>
+  <style>
+    :root {
+      --bg: #f7f4ef;
+      --panel: #fffdfa;
+      --ink: #1f2933;
+      --muted: #5b6670;
+      --line: rgba(31, 41, 51, 0.12);
+      --accent: #0f766e;
+      --accent-2: #b45309;
+      --accent-3: #7c2d12;
+      --soft: #eef6f5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Iowan Old Style", "Palatino Linotype", serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 24%),
+        radial-gradient(circle at bottom right, rgba(180, 83, 9, 0.08), transparent 24%),
+        linear-gradient(180deg, #fbfaf8 0%, var(--bg) 100%);
+    }
+    .page {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 32px 24px 56px;
+    }
+    .hero, .card, .flow, .code {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 14px 40px rgba(31, 41, 51, 0.06);
+    }
+    .hero {
+      padding: 28px;
+      margin-bottom: 20px;
+    }
+    h1, h2, h3 { margin: 0 0 10px; }
+    h1 { font-size: 38px; line-height: 1.1; }
+    h2 { font-size: 24px; }
+    h3 { font-size: 18px; }
+    p, li { font-family: "Avenir Next", "Segoe UI", sans-serif; line-height: 1.55; color: var(--muted); }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .pill {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: var(--soft);
+      border: 1px solid rgba(15, 118, 110, 0.14);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .section {
+      margin-top: 22px;
+    }
+    .grid-3, .grid-2 {
+      display: grid;
+      gap: 16px;
+    }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card {
+      padding: 20px;
+    }
+    .kicker {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font: 600 12px/1.2 "Avenir Next", "Segoe UI", sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      background: rgba(15, 118, 110, 0.1);
+      color: var(--accent);
+    }
+    .flow {
+      padding: 22px;
+    }
+    .flow-row {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 14px;
+      align-items: stretch;
+    }
+    .flow-step {
+      position: relative;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: linear-gradient(180deg, #fff, #faf8f4);
+    }
+    .flow-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: -11px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--accent-2);
+      font-size: 22px;
+      font-weight: 700;
+    }
+    .tree {
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 16px;
+    }
+    .code {
+      padding: 18px;
+      overflow: auto;
+      font: 13px/1.45 Menlo, Consolas, monospace;
+      white-space: pre;
+      color: #213547;
+    }
+    .phase {
+      border-left: 4px solid var(--accent-2);
+      padding-left: 14px;
+      margin: 10px 0;
+    }
+    .warn {
+      color: var(--accent-3);
+      font-weight: 600;
+    }
+    ul { margin: 10px 0 0 18px; padding: 0; }
+    @media (max-width: 1100px) {
+      .meta, .grid-3, .grid-2, .flow-row, .tree { grid-template-columns: 1fr; }
+      .flow-step:not(:last-child)::after { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="kicker">Phase 1 to Phase 2 Backbone</div>
+      <h1>Lightweight Simscape-Style Engine for Predefined Templates First, Visual Builder Later</h1>
+      <p>The key architectural decision is to build the simulation kernel now as a <strong>port-based graph engine</strong>, while the Phase 1 UI exposes only beginner-friendly predefined templates. The UI never owns equations. Templates only instantiate components and connections. The graph, symbolic, and solver layers derive the system model automatically.</p>
+      <div class="meta">
+        <div class="pill"><strong>Modeling style</strong><br>Across/through port equations</div>
+        <div class="pill"><strong>Phase 1 UX</strong><br>Ready-made templates and parameter editing</div>
+        <div class="pill"><strong>Phase 2 UX</strong><br>Drag, connect, validate, simulate</div>
+        <div class="pill"><strong>Core invariant</strong><br>Same backend for templates and future editor</div>
+      </div>
+    </section>
+
+    <section class="section flow">
+      <h2>System Flow</h2>
+      <div class="flow-row">
+        <div class="flow-step"><h3>Template or Editor</h3><p>Creates components, ports, probes, and connections.</p></div>
+        <div class="flow-step"><h3>System Graph</h3><p>Stores topology, nodes, domains, and connectivity.</p></div>
+        <div class="flow-step"><h3>Equation Builder</h3><p>Combines constitutive equations with node laws.</p></div>
+        <div class="flow-step"><h3>Solver + Analysis</h3><p>Builds ODE/state-space and runs simulation or linearization.</p></div>
+        <div class="flow-step"><h3>UI + Plots</h3><p>Displays probes, matrices, warnings, and analysis results.</p></div>
+      </div>
+    </section>
+
+    <section class="section grid-3">
+      <article class="card">
+        <div class="kicker">Core/Base</div>
+        <h2>Primitive Modeling Objects</h2>
+        <ul>
+          <li><strong>Domain</strong>: names the physical domain and across/through semantics.</li>
+          <li><strong>Port</strong>: typed terminal with a node reference and symbolic variables.</li>
+          <li><strong>Node</strong>: enforces across-equality and through-sum-zero.</li>
+          <li><strong>Connection</strong>: binds ports and lets graph analysis merge nodes.</li>
+          <li><strong>BaseComponent</strong>: reusable physical element contract.</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="kicker">Graph</div>
+        <h2>Topology and Validation</h2>
+        <ul>
+          <li>Stores components and their port-level connectivity.</li>
+          <li>Rejects domain mismatch and invalid source conflicts.</li>
+          <li>Detects isolated subsystems and missing references.</li>
+          <li>Classifies model as mechanical, electrical, or mixed.</li>
+          <li>Publishes structural metadata to the UI.</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="kicker">Symbolic + Solver</div>
+        <h2>Automatic Equation Pipeline</h2>
+        <ul>
+          <li>Constitutive equations come from components.</li>
+          <li>Node equations come from graph assembly.</li>
+          <li>Builders create ODE and state-space forms.</li>
+          <li>Transfer functions only when linear and valid.</li>
+          <li>Nonlinear systems go through linearization first.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="section tree">
+      <article class="card">
+        <div class="kicker">Proposed Package Layout</div>
+        <div class="code">core/
+  base/
+    domain.py
+    port.py
+    node.py
+    connection.py
+    component.py
+  models/
+    mechanical/
+      mass.py
+      spring.py
+      damper.py
+      spring_damper.py
+      ground.py
+      wheel.py
+    electrical/
+      resistor.py
+      capacitor.py
+      inductor.py
+      voltage_source.py
+      current_source.py
+      ground.py
+    sources/
+      base_signal.py
+      step_force.py
+      sine_force.py
+      random_road.py
+      custom_signal.py
+  graph/
+    system_graph.py
+    assembler.py
+    validators.py
+    topology_analysis.py
+  symbolic/
+    equation_builder.py
+    state_space_builder.py
+    transfer_function_builder.py
+    linearization.py
+  solver/
+    ode_solver.py
+    simulation_runner.py
+    result_container.py
+  probes/
+    displacement_probe.py
+    velocity_probe.py
+    acceleration_probe.py
+    force_probe.py
+    voltage_probe.py
+    current_probe.py
+  templates/
+    single_mass.py
+    two_mass.py
+    quarter_car.py
+    rc_circuit.py
+    rlc_circuit.py</div>
+      </article>
+      <article class="card">
+        <div class="kicker">UI + Services</div>
+        <div class="code">ui/
+  main_window.py
+  panels/
+    model_selector_panel.py
+    parameter_panel.py
+    controller_panel.py
+    io_selector_panel.py
+    equations_panel.py
+    plots_panel.py
+    warnings_panel.py
+  canvas/
+    template_view.py
+    future_graph_editor.py
+  widgets/
+    reusable_controls.py
+
+services/
+  model_service.py
+  simulation_service.py
+  analysis_service.py
+  export_service.py
+
+Important rule:
+UI only manipulates graph/template objects.
+Simulation logic never lives in widgets.</div>
+      </article>
+    </section>
+
+    <section class="section grid-2">
+      <article class="card">
+        <div class="kicker">Key Base Classes</div>
+        <div class="code">class Domain:
+    name: str
+    across_variable: str
+    through_variable: str
+
+class Port:
+    id: str
+    name: str
+    domain: Domain
+    component_id: str
+    node_id: str | None
+    across_symbol: str
+    through_symbol: str
+    required: bool = True
+
+class BaseComponent:
+    id: str
+    name: str
+    domain: Domain
+    ports: list[Port]
+    parameters: dict[str, float]
+    initial_conditions: dict[str, float]
+
+    def get_states(self) -> list[str]: ...
+    def get_parameters(self) -> dict[str, float]: ...
+    def constitutive_equations(self): ...
+    def validate(self): ...</div>
+      </article>
+      <article class="card">
+        <div class="kicker">Graph Contracts</div>
+        <div class="code">class SystemGraph:
+    components: dict[str, BaseComponent]
+    connections: list[Connection]
+    nodes: dict[str, Node]
+    probes: dict[str, BaseProbe]
+
+    def add_component(self, component): ...
+    def connect(self, port_a, port_b): ...
+    def attach_probe(self, probe): ...
+    def build_nodes(self): ...
+    def validate(self): ...
+    def analyze_topology(self): ...
+
+class GraphAssembler:
+    def assemble_equation_context(self, graph): ...
+    def build_node_constraints(self, graph): ...
+    def build_component_equations(self, graph): ...</div>
+      </article>
+    </section>
+
+    <section class="section grid-2">
+      <article class="card">
+        <div class="kicker">Concrete Components</div>
+        <div class="code">class Mass(BaseComponent):
+    # state: displacement x, velocity v
+    # across at port: velocity
+    # through at port: force
+    def get_states(self):
+        return ["x", "v"]
+    def constitutive_equations(self):
+        return [
+            "dx/dt = v",
+            "m * dv/dt = sum(port_forces)"
+        ]
+
+class Spring(BaseComponent):
+    # two-port mechanical element
+    def constitutive_equations(self):
+        return ["f = k * (x_a - x_b)"]
+
+class Damper(BaseComponent):
+    def constitutive_equations(self):
+        return ["f = d * (v_a - v_b)"]</div>
+      </article>
+      <article class="card">
+        <div class="kicker">Reusable Sources and Probes</div>
+        <div class="code">class SignalSource(BaseComponent):
+    def displacement_output(self, t): ...
+    def velocity_output(self, t): ...
+
+class RandomRoad(SignalSource):
+    amplitude: float
+    roughness: float
+    seed: int
+    vehicle_speed: float
+    dt: float
+    duration: float
+
+    def displacement_output(self, t): ...
+    def velocity_output(self, t): ...
+
+class BaseProbe:
+    id: str
+    name: str
+    target_component_id: str
+    quantity: str
+    def measurement_equation(self): ...</div>
+      </article>
+    </section>
+
+    <section class="section grid-2">
+      <article class="card">
+        <div class="kicker">Quarter-Car Template Example</div>
+        <div class="code">def build_quarter_car_template():
+    graph = SystemGraph()
+
+    body = Mass("body_mass", m=300.0)
+    wheel = Mass("wheel_mass", m=40.0)
+    suspension = Spring("suspension_k", k=15000.0)
+    damper = Damper("suspension_c", d=1200.0)
+    tire = Spring("tire_k", k=180000.0)
+    road = RandomRoad("road_source", ...)
+    ground = MechanicalGround("ground")
+
+    graph.add_component(body)
+    graph.add_component(wheel)
+    graph.add_component(suspension)
+    graph.add_component(damper)
+    graph.add_component(tire)
+    graph.add_component(road)
+    graph.add_component(ground)
+
+    graph.connect(body.port, suspension.port_a)
+    graph.connect(body.port, damper.port_a)
+    graph.connect(suspension.port_b, wheel.port)
+    graph.connect(damper.port_b, wheel.port)
+    graph.connect(wheel.port, tire.port_a)
+    graph.connect(tire.port_b, road.port)
+    graph.connect(road.reference_port, ground.port)
+
+    graph.attach_probe(DisplacementProbe("body_disp", body))
+    graph.attach_probe(DisplacementProbe("wheel_disp", wheel))
+    graph.attach_probe(AccelerationProbe("body_acc", body))
+    graph.attach_probe(ForceProbe("tire_force", tire))
+
+    return TemplateDefinition(
+        graph=graph,
+        default_input="road_source",
+        default_output="body_disp",
+        suggested_plots=["time", "step", "bode", "pole_zero"]
+    )</div>
+      </article>
+      <article class="card">
+        <div class="kicker">What Is Explicitly Not Hardcoded</div>
+        <ul>
+          <li>Quarter-car equations are not handwritten in the solver.</li>
+          <li>Input/output choices are not fixed in the template view.</li>
+          <li>Plots are driven by the selected probe and selected source.</li>
+          <li>Future visual editor uses the same graph object, not a parallel scene model.</li>
+        </ul>
+        <p class="warn">Templates are convenience front-ends, not a second simulation architecture.</p>
+      </article>
+    </section>
+
+    <section class="section grid-2">
+      <article class="card">
+        <div class="kicker">Phase Plan</div>
+        <div class="phase"><strong>Phase 1</strong><p>Implement domains, ports, graph validation, a minimal symbolic builder for linear translational and electrical components, predefined templates, probe-driven outputs, and the PySide6 template UI.</p></div>
+        <div class="phase"><strong>Phase 2</strong><p>Add the graphical editor as a view/controller over the same graph model: drag components, create node connections, snap wires, edit properties, run validation, and simulate immediately.</p></div>
+      </article>
+      <article class="card">
+        <div class="kicker">How the Future Editor Reuses the Backend</div>
+        <ul>
+          <li>Canvas items map 1:1 to <code>BaseComponent</code> instances.</li>
+          <li>Visual ports map 1:1 to <code>Port</code> objects.</li>
+          <li>Wires create <code>Connection</code> objects and trigger graph rebuild.</li>
+          <li>Validation errors come from graph validators and show in UI badges.</li>
+          <li>Equation, state-space, and plots refresh from the same services used by templates.</li>
+        </ul>
+      </article>
+    </section>
+  </div>
+</body>
+</html>

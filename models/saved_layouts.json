@@ -1,0 +1,30 @@
+[
+  {
+    "id": "user_1",
+    "name": "tetet",
+    "source_type": "user",
+    "payload": {
+      "visual_profile": "blank",
+      "components": [
+        {
+          "display_name": "Mass",
+          "component_id": "mass_1",
+          "position": [
+            211.130890052356,
+            129.4031413612566
+          ],
+          "size": [
+            228.0,
+            108.0
+          ],
+          "deletable": true,
+          "orientation": 0,
+          "assigned_io_role": null
+        }
+      ],
+      "wires": []
+    },
+    "created_at": "2026-04-08T23:37:49",
+    "updated_at": "2026-04-08T23:38:00"
+  }
+]

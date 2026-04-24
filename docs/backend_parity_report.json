@@ -1,0 +1,540 @@
+{
+  "status": "exact_match",
+  "input_channel": "road_displacement",
+  "common_outputs": [
+    "body_displacement",
+    "wheel_displacement",
+    "suspension_deflection",
+    "body_acceleration",
+    "tire_deflection"
+  ],
+  "numeric_only_outputs": [],
+  "symbolic_only_outputs": [],
+  "exact_matches": {
+    "output_order_matches": true,
+    "state_order_matches": true,
+    "input_labels_match": true,
+    "output_labels_match": true,
+    "state_trace_matches": true,
+    "output_trace_matches": true
+  },
+  "tolerance_matches": {
+    "matrix_diffs": {
+      "A": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          4,
+          4
+        ],
+        "shape_right": [
+          4,
+          4
+        ]
+      },
+      "B": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          4,
+          1
+        ],
+        "shape_right": [
+          4,
+          1
+        ]
+      },
+      "C": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          5,
+          4
+        ],
+        "shape_right": [
+          5,
+          4
+        ]
+      },
+      "D": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          5,
+          1
+        ],
+        "shape_right": [
+          5,
+          1
+        ]
+      }
+    },
+    "transfer_function_diffs": {
+      "body_displacement:numerator": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          1,
+          5
+        ],
+        "shape_right": [
+          1,
+          5
+        ]
+      },
+      "body_displacement:denominator": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          5
+        ],
+        "shape_right": [
+          5
+        ]
+      },
+      "wheel_displacement:numerator": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          1,
+          5
+        ],
+        "shape_right": [
+          1,
+          5
+        ]
+      },
+      "wheel_displacement:denominator": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          5
+        ],
+        "shape_right": [
+          5
+        ]
+      },
+      "suspension_deflection:numerator": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          1,
+          5
+        ],
+        "shape_right": [
+          1,
+          5
+        ]
+      },
+      "suspension_deflection:denominator": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          5
+        ],
+        "shape_right": [
+          5
+        ]
+      },
+      "body_acceleration:numerator": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          1,
+          5
+        ],
+        "shape_right": [
+          1,
+          5
+        ]
+      },
+      "body_acceleration:denominator": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          5
+        ],
+        "shape_right": [
+          5
+        ]
+      },
+      "tire_deflection:numerator": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          1,
+          5
+        ],
+        "shape_right": [
+          1,
+          5
+        ]
+      },
+      "tire_deflection:denominator": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          5
+        ],
+        "shape_right": [
+          5
+        ]
+      }
+    },
+    "pole_zero_diffs": {
+      "body_displacement:zeros": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          3
+        ],
+        "shape_right": [
+          3
+        ]
+      },
+      "body_displacement:poles": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          4
+        ],
+        "shape_right": [
+          4
+        ]
+      },
+      "wheel_displacement:zeros": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          3
+        ],
+        "shape_right": [
+          3
+        ]
+      },
+      "wheel_displacement:poles": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          4
+        ],
+        "shape_right": [
+          4
+        ]
+      },
+      "suspension_deflection:zeros": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          3
+        ],
+        "shape_right": [
+          3
+        ]
+      },
+      "suspension_deflection:poles": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          4
+        ],
+        "shape_right": [
+          4
+        ]
+      },
+      "body_acceleration:zeros": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          3
+        ],
+        "shape_right": [
+          3
+        ]
+      },
+      "body_acceleration:poles": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          4
+        ],
+        "shape_right": [
+          4
+        ]
+      },
+      "tire_deflection:zeros": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          4
+        ],
+        "shape_right": [
+          4
+        ]
+      },
+      "tire_deflection:poles": {
+        "max_abs_error": 0.0,
+        "max_rel_error_estimate": 0.0,
+        "shape_left": [
+          4
+        ],
+        "shape_right": [
+          4
+        ]
+      }
+    },
+    "eigenvalue_diff": {
+      "max_abs_error": 0.0,
+      "max_rel_error_estimate": 0.0,
+      "shape_left": [
+        4
+      ],
+      "shape_right": [
+        4
+      ]
+    },
+    "step_response_metrics": [
+      {
+        "output_name": "body_displacement",
+        "peak_abs_error": 0.0,
+        "final_value_error": 0.0,
+        "rms_error": 0.0
+      },
+      {
+        "output_name": "wheel_displacement",
+        "peak_abs_error": 0.0,
+        "final_value_error": 0.0,
+        "rms_error": 0.0
+      },
+      {
+        "output_name": "suspension_deflection",
+        "peak_abs_error": 0.0,
+        "final_value_error": 0.0,
+        "rms_error": 0.0
+      },
+      {
+        "output_name": "body_acceleration",
+        "peak_abs_error": 0.0,
+        "final_value_error": 0.0,
+        "rms_error": 0.0
+      },
+      {
+        "output_name": "tire_deflection",
+        "peak_abs_error": 0.0,
+        "final_value_error": 0.0,
+        "rms_error": 0.0
+      }
+    ]
+  },
+  "semantic_mismatches": [],
+  "metadata": {
+    "numeric_states": [
+      "x_body_mass",
+      "v_body_mass",
+      "x_wheel_mass",
+      "v_wheel_mass"
+    ],
+    "symbolic_states": [
+      "x_body_mass",
+      "v_body_mass",
+      "x_wheel_mass",
+      "v_wheel_mass"
+    ],
+    "aligned_symbolic_states": [
+      "x_body_mass",
+      "v_body_mass",
+      "x_wheel_mass",
+      "v_wheel_mass"
+    ],
+    "numeric_state_trace": [
+      {
+        "state_id": "x_body_mass",
+        "state_column": 0,
+        "node_id": "body_mass",
+        "origin_layer": "backend_contract",
+        "variable_kind": "state",
+        "derivative_id": "ddt_x_body_mass"
+      },
+      {
+        "state_id": "v_body_mass",
+        "state_column": 1,
+        "node_id": "body_mass",
+        "origin_layer": "backend_contract",
+        "variable_kind": "state",
+        "derivative_id": null
+      },
+      {
+        "state_id": "x_wheel_mass",
+        "state_column": 2,
+        "node_id": "wheel_mass",
+        "origin_layer": "backend_contract",
+        "variable_kind": "state",
+        "derivative_id": "ddt_x_wheel_mass"
+      },
+      {
+        "state_id": "v_wheel_mass",
+        "state_column": 3,
+        "node_id": "wheel_mass",
+        "origin_layer": "backend_contract",
+        "variable_kind": "state",
+        "derivative_id": null
+      }
+    ],
+    "symbolic_state_trace": [
+      {
+        "state_id": "x_body_mass",
+        "state_column": 0,
+        "node_id": "body_mass",
+        "origin_layer": "backend_contract",
+        "variable_kind": "state",
+        "derivative_id": "ddt_x_body_mass"
+      },
+      {
+        "state_id": "v_body_mass",
+        "state_column": 1,
+        "node_id": "body_mass",
+        "origin_layer": "backend_contract",
+        "variable_kind": "state",
+        "derivative_id": null
+      },
+      {
+        "state_id": "x_wheel_mass",
+        "state_column": 2,
+        "node_id": "wheel_mass",
+        "origin_layer": "backend_contract",
+        "variable_kind": "state",
+        "derivative_id": "ddt_x_wheel_mass"
+      },
+      {
+        "state_id": "v_wheel_mass",
+        "state_column": 3,
+        "node_id": "wheel_mass",
+        "origin_layer": "backend_contract",
+        "variable_kind": "state",
+        "derivative_id": null
+      }
+    ],
+    "numeric_output_trace": [
+      {
+        "output_id": "body_displacement",
+        "origin_layer": "backend_contract",
+        "source_type": "probe",
+        "target_component_id": "body_mass",
+        "reference_component_id": null,
+        "quantity": "displacement",
+        "state_columns": [
+          "x_body_mass"
+        ]
+      },
+      {
+        "output_id": "wheel_displacement",
+        "origin_layer": "backend_contract",
+        "source_type": "probe",
+        "target_component_id": "wheel_mass",
+        "reference_component_id": null,
+        "quantity": "displacement",
+        "state_columns": [
+          "x_wheel_mass"
+        ]
+      },
+      {
+        "output_id": "suspension_deflection",
+        "origin_layer": "backend_contract",
+        "source_type": "relative_probe",
+        "target_component_id": "body_mass",
+        "reference_component_id": "wheel_mass",
+        "quantity": "displacement",
+        "state_columns": [
+          "x_body_mass",
+          "x_wheel_mass"
+        ]
+      },
+      {
+        "output_id": "body_acceleration",
+        "origin_layer": "backend_contract",
+        "source_type": "probe",
+        "target_component_id": "body_mass",
+        "reference_component_id": null,
+        "quantity": "acceleration",
+        "state_columns": [
+          "x_body_mass",
+          "v_body_mass",
+          "x_wheel_mass",
+          "v_wheel_mass"
+        ]
+      },
+      {
+        "output_id": "tire_deflection",
+        "origin_layer": "backend_contract",
+        "source_type": "relative_probe",
+        "target_component_id": "wheel_mass",
+        "reference_component_id": "road_source",
+        "quantity": "displacement",
+        "state_columns": [
+          "x_wheel_mass"
+        ]
+      }
+    ],
+    "symbolic_output_trace": [
+      {
+        "output_id": "body_displacement",
+        "origin_layer": "backend_contract",
+        "source_type": "probe",
+        "target_component_id": "body_mass",
+        "reference_component_id": null,
+        "quantity": "displacement",
+        "state_columns": [
+          "x_body_mass"
+        ]
+      },
+      {
+        "output_id": "wheel_displacement",
+        "origin_layer": "backend_contract",
+        "source_type": "probe",
+        "target_component_id": "wheel_mass",
+        "reference_component_id": null,
+        "quantity": "displacement",
+        "state_columns": [
+          "x_wheel_mass"
+        ]
+      },
+      {
+        "output_id": "suspension_deflection",
+        "origin_layer": "backend_contract",
+        "source_type": "relative_probe",
+        "target_component_id": "body_mass",
+        "reference_component_id": "wheel_mass",
+        "quantity": "displacement",
+        "state_columns": [
+          "x_body_mass",
+          "x_wheel_mass"
+        ]
+      },
+      {
+        "output_id": "body_acceleration",
+        "origin_layer": "backend_contract",
+        "source_type": "probe",
+        "target_component_id": "body_mass",
+        "reference_component_id": null,
+        "quantity": "acceleration",
+        "state_columns": [
+          "x_body_mass",
+          "v_body_mass",
+          "x_wheel_mass",
+          "v_wheel_mass"
+        ]
+      },
+      {
+        "output_id": "tire_deflection",
+        "origin_layer": "backend_contract",
+        "source_type": "relative_probe",
+        "target_component_id": "wheel_mass",
+        "reference_component_id": "road_source",
+        "quantity": "displacement",
+        "state_columns": [
+          "x_wheel_mass"
+        ]
+      }
+    ]
+  }
+}
