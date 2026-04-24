@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Protocol, TYPE_CHECKING
 
 import numpy as np
 from scipy import signal
@@ -10,7 +11,16 @@ from app.core.models.quarter_car_model import QuarterCarModel, QuarterCarParamet
 from app.core.state.feature_flags import DEFAULT_FLAGS, FeatureFlags
 from app.core.symbolic import DAEReducer, EquationBuilder, StateSpaceBuilder
 from app.core.symbolic.reducer_parity_harness import ReducerParityHarness
-from app.core.templates import build_quarter_car_template
+
+if TYPE_CHECKING:
+    from app.core.graph.system_graph import SystemGraph
+
+
+@dataclass(frozen=True)
+class _ResolvedTemplate:
+    """Duck-typed replacement for QuarterCarTemplate carrying only .graph and .id."""
+    graph: object  # SystemGraph at runtime; typed as object to avoid runtime import
+    id: str
 
 
 @dataclass(slots=True)
@@ -234,8 +244,11 @@ class SymbolicStateSpaceBackend:
         self,
         parameters: QuarterCarParameters | None = None,
         flags: FeatureFlags = DEFAULT_FLAGS,
+        canvas_graph_provider: Callable[[], SystemGraph | None] | None = None,
     ) -> None:
         self.parameters = parameters or QuarterCarParameters()
+        self._flags = flags
+        self._canvas_graph_provider = canvas_graph_provider
         self._harness = ReducerParityHarness(flags=flags)
 
     def get_state_space(
@@ -354,14 +367,15 @@ class SymbolicStateSpaceBackend:
             normalized.append(trace)
         return normalized
 
-    def _build_template(self):
-        template = build_quarter_car_template()
-        template.graph.components["body_mass"].parameters["mass"] = self.parameters.body_mass
-        template.graph.components["wheel_mass"].parameters["mass"] = self.parameters.wheel_mass
-        template.graph.components["suspension_spring"].parameters["stiffness"] = self.parameters.suspension_spring
-        template.graph.components["suspension_damper"].parameters["damping"] = self.parameters.suspension_damper
-        template.graph.components["tire_stiffness"].parameters["stiffness"] = self.parameters.tire_stiffness
-        return template
+    def _build_template(self) -> _ResolvedTemplate:
+        from app.services.graph_resolver import resolve_graph
+        graph, graph_id = resolve_graph(self._flags, self._canvas_graph_provider)
+        graph.components["body_mass"].parameters["mass"] = self.parameters.body_mass
+        graph.components["wheel_mass"].parameters["mass"] = self.parameters.wheel_mass
+        graph.components["suspension_spring"].parameters["stiffness"] = self.parameters.suspension_spring
+        graph.components["suspension_damper"].parameters["damping"] = self.parameters.suspension_damper
+        graph.components["tire_stiffness"].parameters["stiffness"] = self.parameters.tire_stiffness
+        return _ResolvedTemplate(graph=graph, id=graph_id)
 
     def _input_index(self, input_variables: list[str], input_channel: str) -> int:
         channel_to_prefix = {

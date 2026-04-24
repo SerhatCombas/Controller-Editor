@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, TYPE_CHECKING
 
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 
 from app.core.models.quarter_car_model import QuarterCarModel, QuarterCarParameters, QuarterCarState
+from app.core.state.feature_flags import DEFAULT_FLAGS, FeatureFlags
 from app.core.symbolic import DAEReducer, EquationBuilder, StateSpaceBuilder
-from app.core.templates import build_quarter_car_template
+
+if TYPE_CHECKING:
+    from app.core.graph.system_graph import SystemGraph
 
 
 @dataclass(slots=True)
@@ -308,21 +312,29 @@ class SymbolicStateSpaceRuntimeBackend:
         "tire_deflection",
     ]
 
-    def __init__(self, parameters: QuarterCarParameters) -> None:
+    def __init__(
+        self,
+        parameters: QuarterCarParameters,
+        canvas_graph_provider: Callable[[], SystemGraph | None] | None = None,
+        flags: FeatureFlags = DEFAULT_FLAGS,
+    ) -> None:
         self.parameters = parameters
+        self._canvas_graph_provider = canvas_graph_provider
+        self._flags = flags
         self._build_runtime_model()
         self.state = QuarterCarState()
 
     def _build_runtime_model(self) -> None:
-        template = build_quarter_car_template()
-        template.graph.components["body_mass"].parameters["mass"] = self.parameters.body_mass
-        template.graph.components["wheel_mass"].parameters["mass"] = self.parameters.wheel_mass
-        template.graph.components["suspension_spring"].parameters["stiffness"] = self.parameters.suspension_spring
-        template.graph.components["suspension_damper"].parameters["damping"] = self.parameters.suspension_damper
-        template.graph.components["tire_stiffness"].parameters["stiffness"] = self.parameters.tire_stiffness
-        symbolic = EquationBuilder().build(template.graph)
-        reduced = DAEReducer().reduce(template.graph, symbolic)
-        state_space = StateSpaceBuilder().build(template.graph, reduced, symbolic)
+        from app.services.graph_resolver import resolve_graph
+        graph, _ = resolve_graph(self._flags, self._canvas_graph_provider)
+        graph.components["body_mass"].parameters["mass"] = self.parameters.body_mass
+        graph.components["wheel_mass"].parameters["mass"] = self.parameters.wheel_mass
+        graph.components["suspension_spring"].parameters["stiffness"] = self.parameters.suspension_spring
+        graph.components["suspension_damper"].parameters["damping"] = self.parameters.suspension_damper
+        graph.components["tire_stiffness"].parameters["stiffness"] = self.parameters.tire_stiffness
+        symbolic = EquationBuilder().build(graph)
+        reduced = DAEReducer().reduce(graph, symbolic)
+        state_space = StateSpaceBuilder().build(graph, reduced, symbolic)
         state_indices = [state_space.state_variables.index(state_id) for state_id in self.STATE_ORDER]
         self.a_matrix = np.asarray(state_space.a_matrix, dtype=float)[np.ix_(state_indices, state_indices)]
         self.b_matrix = np.asarray(state_space.b_matrix, dtype=float)[state_indices, :]

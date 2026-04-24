@@ -73,6 +73,7 @@ class FeatureFlags:
     parity_mode: ParityMode = ParityMode.OFF
     enable_linearity_classifier: bool = True
     enable_input_router: bool = True
+    canvas_compiled_graph: bool = False
 
 
 DEFAULT_FLAGS = FeatureFlags(
