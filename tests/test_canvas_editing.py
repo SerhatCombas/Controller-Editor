@@ -298,7 +298,7 @@ class CanvasEditingTests(unittest.TestCase):
         window.model_panel.load_default_model()
         self._mark_scene_input(window, 0)
         self.assertEqual(window.controller_panel.input_source.currentData(), "road")
-        self.assertEqual(window.app_state.selection.input_component_id, "disturbance_source")
+        self.assertEqual(window.app_state.selection.input_component_id, "road_source")
         self.assertIn("Mechanical Random Reference", window.controller_panel.scene_input_status.text())
 
     def test_scene_output_assignment_updates_controller_output_selection(self):
@@ -344,7 +344,7 @@ class CanvasEditingTests(unittest.TestCase):
         self._mark_scene_input(window, len(window.model_panel.canvas._components) - 1)
         self._mark_scene_output(window, 1)
         self.assertEqual(window.app_state.selection.input_signals, ("road", "body_force"))
-        self.assertEqual(window.app_state.selection.input_component_ids, ("disturbance_source", "force_source_1"))
+        self.assertEqual(window.app_state.selection.input_component_ids, ("road_source", "force_source_1"))
         self.assertTrue(window.controller_panel.start_button.isEnabled())
 
     def test_analysis_input_without_runtime_channel_fails_honestly_in_equation_panel(self):
@@ -454,7 +454,7 @@ class CanvasEditingTests(unittest.TestCase):
             window = MainWindow()
         window.model_panel.load_layout_by_id("default_quarter_car")
         self._mark_scene_input(window, 0)
-        self.assertEqual(window.app_state.selection.input_component_id, "disturbance_source")
+        self.assertEqual(window.app_state.selection.input_component_id, "road_source")
         window.model_panel.load_layout_by_id("default_single_mass")
         self.assertIsNone(window.controller_panel.input_source.currentData())
         self.assertIsNone(window.app_state.selection.input_component_id)
@@ -468,7 +468,7 @@ class CanvasEditingTests(unittest.TestCase):
         self._mark_scene_input(window, 0)
         window._refresh_canvas()
         self.app.processEvents()
-        self.assertEqual(window.app_state.selection.input_component_id, "disturbance_source")
+        self.assertEqual(window.app_state.selection.input_component_id, "road_source")
         self.assertEqual(window.controller_panel.input_source.currentData(), "road")
 
     def test_saved_layout_load_does_not_reuse_incompatible_output_selection(self):
@@ -496,7 +496,7 @@ class CanvasEditingTests(unittest.TestCase):
         item = panel.default_layouts_list.item(0)
         panel.default_layouts_list.itemDoubleClicked.emit(item)
         self.assertIn("Mass", panel.canvas.visible_component_names())
-        self.assertEqual(len(panel.canvas._components), 6)
+        self.assertEqual(len(panel.canvas._components), 8)
 
     def test_loading_default_layout_updates_main_window_runtime_template(self):
         with patch("app.ui.main_window.default_saved_layouts_path", return_value=self._saved_layouts_path):
@@ -536,12 +536,12 @@ class CanvasEditingTests(unittest.TestCase):
         item = panel.saved_layouts_list.item(0)
         panel.saved_layouts_list.itemDoubleClicked.emit(item)
         self.assertIn("Mass", panel.canvas.visible_component_names())
-        self.assertEqual(len(panel.canvas._components), 6)
+        self.assertEqual(len(panel.canvas._components), 8)
 
     def test_loading_layout_clears_previous_workspace_first(self):
         panel = ModelPanel()
         panel.load_layout_by_id("default_quarter_car")
-        self.assertEqual(len(panel.canvas._components), 6)
+        self.assertEqual(len(panel.canvas._components), 8)
         panel.load_layout_by_id("default_single_mass")
         self.assertEqual(len(panel.canvas._components), 5)
         self.assertEqual(panel.canvas.visible_component_names().count("Mass"), 1)
@@ -637,7 +637,7 @@ class CanvasEditingTests(unittest.TestCase):
         self.assertEqual(panel.saved_layout_titles().count("Duplicate"), 1)
         item = panel.saved_layouts_list.item(0)
         panel.saved_layouts_list.itemDoubleClicked.emit(item)
-        self.assertEqual(len(panel.canvas._components), 6)
+        self.assertEqual(len(panel.canvas._components), 8)
 
     def test_prompt_save_layout_does_not_overwrite_when_declined(self):
         panel = ModelPanel()
@@ -1528,7 +1528,7 @@ class CanvasEditingTests(unittest.TestCase):
         self.assertGreater(canvas.road_visual_smoothing(), 0.5)
         self.assertIn("Wheel", canvas.visible_component_names())
         self.assertIn("Mechanical Random Reference", canvas.visible_component_names())
-        self.assertNotIn("Mechanical Translational Reference", canvas.visible_component_names())
+        self.assertIn("Mechanical Translational Reference", canvas.visible_component_names())
 
     def test_single_mass_support_mode_uses_ground_and_hides_road(self):
         canvas = ModelCanvas()
@@ -1631,14 +1631,14 @@ class CanvasEditingTests(unittest.TestCase):
         )
         self.assertIsInstance(result.component_overrides.get("body_mass"), ComponentVisualOverride)
         self.assertIsInstance(result.component_overrides.get("suspension_spring"), ComponentVisualOverride)
-        self.assertEqual(result.road_owner_component_id, "disturbance_source")
+        self.assertEqual(result.road_owner_component_id, "road_source")
 
     def test_quarter_car_tire_visual_stays_visible_before_simulation_and_hides_during_active_road_playback(self):
         canvas = ModelCanvas()
         canvas.load_default_quarter_car_layout()
         tire = next(component for component in canvas._components if component.spec.type_key == "tire_stiffness")
         self.assertTrue(canvas._component_visible_in_current_visual_mode(tire))
-        self.assertEqual(len(canvas.persistent_wires()), 6)
+        self.assertEqual(len(canvas.persistent_wires()), 8)
 
         canvas.update_visualization(
             {
@@ -1686,7 +1686,7 @@ class CanvasEditingTests(unittest.TestCase):
         canvas = ModelCanvas()
         canvas.load_default_quarter_car_layout()
         body_mass = next(component for component in canvas._components if component.component_id == "body_mass")
-        wheel = next(component for component in canvas._components if component.component_id == "wheel")
+        wheel = next(component for component in canvas._components if component.component_id == "wheel_mass")
         spring = next(component for component in canvas._components if component.component_id == "suspension_spring")
         base_mass_rect = canvas._dynamic_rect(body_mass)
         base_wheel_rect = canvas._dynamic_rect(wheel)
@@ -2257,7 +2257,7 @@ class CanvasEditingTests(unittest.TestCase):
         self.assertTrue(canvas._components[4].has_io_role(ComponentIoRole.INPUT))
         self.assertTrue(canvas._components[4].has_io_role(ComponentIoRole.OUTPUT))
         layout = canvas.io_marker_layout_snapshot()
-        wheel_markers = [item for item in layout if item["component_id"] == "wheel"]
+        wheel_markers = [item for item in layout if item["component_id"] == "wheel_mass"]
         self.assertEqual({item["role"] for item in wheel_markers}, {"input", "output"})
 
     def test_two_mass_output_mapping_resolves_both_mass_signals(self):

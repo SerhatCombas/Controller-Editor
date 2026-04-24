@@ -431,40 +431,36 @@ class TestCanvasCompilerNumericalParity(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Production canvas fixture  (as loaded by load_default_quarter_car_layout)
 # ---------------------------------------------------------------------------
-# These are the ACTUAL component IDs and wires in the production canvas.
-# body_force and ground are ABSENT.  wheel uses ID "wheel", not "wheel_mass".
-# road uses ID "disturbance_source", not "road_source".
+# Phase 2 applied: IDs match template. body_force and ground are present.
 
 _PRODUCTION_COMPONENTS: list[_Comp] = [
-    _comp("disturbance_source", "mechanical_random_reference"),  # ≠ road_source
-    _comp("body_mass",          "mass"),
-    _comp("suspension_damper",  "translational_damper"),
-    _comp("suspension_spring",  "translational_spring"),
-    _comp("wheel",              "wheel"),                        # ≠ wheel_mass
-    _comp("tire_stiffness",     "tire_stiffness"),
-    # body_force: ABSENT — no ideal_force_source in production canvas
-    # ground: ABSENT — no mechanical_reference in production canvas
+    _comp("road_source",       "mechanical_random_reference"),
+    _comp("body_mass",         "mass"),
+    _comp("suspension_damper", "translational_damper"),
+    _comp("suspension_spring", "translational_spring"),
+    _comp("wheel_mass",        "wheel"),
+    _comp("tire_stiffness",    "tire_stiffness"),
+    _comp("body_force",        "ideal_force_source"),
+    _comp("ground",            "mechanical_reference"),
 ]
 
 _PRODUCTION_WIRES: list[_Wire] = [
-    _wire("body_mass",          "bottom", "suspension_damper", "R"),
-    _wire("body_mass",          "bottom", "suspension_spring", "R"),
-    _wire("suspension_damper",  "C",      "wheel",            "top"),
-    _wire("suspension_spring",  "C",      "wheel",            "top"),
-    _wire("wheel",              "bottom", "tire_stiffness",   "R"),
-    _wire("disturbance_source", "output", "tire_stiffness",   "C"),
+    _wire("body_mass",         "bottom", "suspension_damper", "R"),
+    _wire("body_mass",         "bottom", "suspension_spring", "R"),
+    _wire("suspension_damper", "C",      "wheel_mass",        "top"),
+    _wire("suspension_spring", "C",      "wheel_mass",        "top"),
+    _wire("wheel_mass",        "bottom", "tire_stiffness",    "R"),
+    _wire("road_source",       "output", "tire_stiffness",    "C"),
+    _wire("body_mass",         "bottom", "body_force",        "R"),
+    _wire("body_force",        "C",      "wheel_mass",        "top"),
 ]
 
 
 @unittest.skipUnless(_PIPELINE_OK, "Pipeline import failed")
 class TestProductionCanvasGap(unittest.TestCase):
-    """Documents the known gaps between production canvas and template.
+    """Phase 2 completed: production canvas IDs match template, body_force and ground added.
 
-    All tests here are @expectedFailure.  They describe what CURRENTLY breaks
-    when CanvasCompiler is fed the real production canvas.  Phase 2 must fix
-    each gap; when it does, the expectedFailure becomes an unexpected pass and
-    the framework will flag it — your signal to promote the test to a real
-    green assertion and remove @expectedFailure.
+    All previously @expectedFailure tests are now green.
     """
 
     @classmethod
@@ -473,43 +469,37 @@ class TestProductionCanvasGap(unittest.TestCase):
         cls.ss_template = _run_pipeline(template.graph)
 
         prod_graph = CanvasCompiler().compile(_PRODUCTION_COMPONENTS, _PRODUCTION_WIRES)
-        # Apply production-equivalent parameters (same values, mismatched IDs)
+        # Apply production-equivalent parameters (IDs now match template after Phase 2)
         prod_graph.components["body_mass"].parameters["mass"]              = 300.0
-        prod_graph.components["wheel"].parameters["mass"]                  = 40.0
+        prod_graph.components["wheel_mass"].parameters["mass"]             = 40.0
         prod_graph.components["suspension_spring"].parameters["stiffness"] = 15000.0
         prod_graph.components["suspension_damper"].parameters["damping"]   = 1200.0
         prod_graph.components["tire_stiffness"].parameters["stiffness"]    = 180000.0
 
-        # Probes: best-effort with production IDs (wheel → "wheel", road → "disturbance_source")
+        # Probes: Phase 2 IDs match template
         prod_graph.probes.clear()
         prod_graph.attach_probe(BaseProbe(
             "body_displacement", "Body displacement", "displacement", "body_mass",
             output_kind=OutputKind.STATE_DIRECT, quantity_key=QK_DISPLACEMENT,
         ))
         prod_graph.attach_probe(BaseProbe(
-            "wheel_displacement", "Wheel displacement", "displacement", "wheel",
+            "wheel_displacement", "Wheel displacement", "displacement", "wheel_mass",
             output_kind=OutputKind.STATE_DIRECT, quantity_key=QK_DISPLACEMENT,
         ))
 
         cls.ss_prod = _run_pipeline(prod_graph)
 
-    @unittest.expectedFailure
     def test_gap_input_count(self) -> None:
-        """Production canvas has 1 input (road only); template has 2 (road + body_force).
-        GAP: body_force absent from canvas → B has 1 column, not 2.
-        FIX (Phase 2): add ideal_force_source to canvas pre-population.
+        """Production canvas now has 2 inputs (road + body_force) matching template.
         """
         n_inputs_prod     = len(self.ss_prod.b_matrix[0])
         n_inputs_template = len(self.ss_template.b_matrix[0])
         self.assertEqual(n_inputs_prod, n_inputs_template,
                          msg=f"Production: {n_inputs_prod} inputs, template: {n_inputs_template}")
 
-    @unittest.expectedFailure
     def test_gap_state_variable_names(self) -> None:
-        """Production canvas uses 'wheel' (not 'wheel_mass') and 'disturbance_source'
-        (not 'road_source'), so state variables are named differently.
-        GAP: x_wheel / v_wheel instead of x_wheel_mass / v_wheel_mass.
-        FIX (Phase 2): rename canvas component IDs to match template IDs.
+        """Production canvas state variables now match template: x_body_mass, x_wheel_mass.
+        Phase 2 renamed wheel → wheel_mass and disturbance_source → road_source.
         """
         self.assertEqual(
             self.ss_prod.state_variables,
@@ -520,31 +510,24 @@ class TestProductionCanvasGap(unittest.TestCase):
             ),
         )
 
-    @unittest.expectedFailure
     def test_gap_b_matrix_shape(self) -> None:
-        """B matrix shape mismatch (4×1 vs 4×2) — direct consequence of missing body_force.
-        This is what a naive np.allclose comparison would crash on.
-        FIX (Phase 2): add body_force component + wires to canvas.
+        """B matrix shape now matches (4×2 = 4×2) because body_force was added in Phase 2.
         """
         _assert_matrices_close(self.ss_prod.b_matrix, self.ss_template.b_matrix, "B")
 
     def test_a_matrix_values_still_correct(self) -> None:
-        """Despite ID and input-count mismatches, A matrix VALUES are physically correct.
-        The suspension dynamics don't depend on whether body_force is present or on
-        component naming — this test should stay GREEN across Phase 1 and 2.
+        """A matrix values are physically correct. Phase 2 IDs match template, name_map is identity.
         """
         # A is 4×4 in both cases; reorder production states to match template order
         t_states = self.ss_template.state_variables
         p_states = self.ss_prod.state_variables
 
-        # Build template→production name map.
-        # Keys are template state names; values are the corresponding production state names.
-        # Phase 2 renames: wheel_mass → wheel, road_source → disturbance_source.
+        # Phase 2 applied: IDs match, so name_map is identity.
         name_map = {
             "x_body_mass":  "x_body_mass",
             "v_body_mass":  "v_body_mass",
-            "x_wheel_mass": "x_wheel",   # template "x_wheel_mass" → production "x_wheel"
-            "v_wheel_mass": "v_wheel",   # template "v_wheel_mass" → production "v_wheel"
+            "x_wheel_mass": "x_wheel_mass",
+            "v_wheel_mass": "v_wheel_mass",
         }
         try:
             perm = [p_states.index(name_map[ts]) for ts in t_states]

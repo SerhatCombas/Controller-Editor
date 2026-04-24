@@ -151,20 +151,24 @@ class ModelCanvas(QWidget):
     def load_default_quarter_car_layout(self) -> None:
         self._visual_profile = self._build_visual_profile("quarter_car")
         components = [
-            self._component("Mechanical Random Reference", "disturbance_source", QPointF(120.0, 610.0), (130.0, 80.0), deletable=False),
+            self._component("Mechanical Random Reference", "road_source", QPointF(120.0, 610.0), (130.0, 80.0), deletable=False),
             self._component("Mass", "body_mass", QPointF(470.0, 110.0), (228.0, 108.0), deletable=False),
             self._component("Translational Damper", "suspension_damper", QPointF(410.0, 265.0), (80.0, 142.0), deletable=False),
             self._component("Translational Spring", "suspension_spring", QPointF(630.0, 260.0), (78.0, 148.0), deletable=False),
-            self._component("Wheel", "wheel", QPointF(470.0, 470.0), (230.0, 230.0), deletable=False),
+            self._component("Wheel", "wheel_mass", QPointF(470.0, 470.0), (230.0, 230.0), deletable=False),
             self._component("Tire Stiffness", "tire_stiffness", QPointF(515.0, 705.0), (130.0, 90.0), deletable=False),
+            self._component("Ideal Force Source", "body_force", QPointF(760.0, 110.0), (80.0, 108.0), deletable=False),
+            self._component("Mechanical Translational Reference", "ground", QPointF(250.0, 820.0), (560.0, 36.0), deletable=False, orientation=Orientation.DEG_0),
         ]
         wires = [
             CanvasWireConnection("body_mass", "bottom", "suspension_damper", "R"),
             CanvasWireConnection("body_mass", "bottom", "suspension_spring", "R"),
-            CanvasWireConnection("suspension_damper", "C", "wheel", "top"),
-            CanvasWireConnection("suspension_spring", "C", "wheel", "top"),
-            CanvasWireConnection("wheel", "bottom", "tire_stiffness", "R"),
-            CanvasWireConnection("disturbance_source", "output", "tire_stiffness", "C"),
+            CanvasWireConnection("suspension_damper", "C", "wheel_mass", "top"),
+            CanvasWireConnection("suspension_spring", "C", "wheel_mass", "top"),
+            CanvasWireConnection("wheel_mass", "bottom", "tire_stiffness", "R"),
+            CanvasWireConnection("road_source", "output", "tire_stiffness", "C"),
+            CanvasWireConnection("body_mass", "bottom", "body_force", "R"),
+            CanvasWireConnection("body_force", "C", "wheel_mass", "top"),
         ]
         self._apply_loaded_layout(components, wires)
 
