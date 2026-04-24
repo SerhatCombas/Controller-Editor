@@ -39,7 +39,7 @@ class SourceRoute:
         driven_node_id: The node_id that this source directly drives.
         reference_node_id: The node_id that serves as the source's reference
             (usually ground). May be None if not connected.
-        input_variable_name: Symbolic name of the input signal (e.g. "f_sf_1_out").
+        input_variable_name: Symbolic name of the input signal (e.g. "u_body_force").
         amplitude_parameter: Name of the amplitude parameter in the component's
             parameters dict (used by the reducer for numeric substitution).
         driven_dof_index: DOF index in the assembled matrix.  -1 if the driven
