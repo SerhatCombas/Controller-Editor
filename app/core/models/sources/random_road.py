@@ -80,6 +80,70 @@ class RandomRoad(SignalSource):
                 return float(self._road[index - 1] * (1.0 - ratio) + self._road[index] * ratio)
         return float(self._road[-1])
 
+    # ------------------------------------------------------------------
+    # Faz 4a — Spatial API (wheel-aware road consumers)
+    # ------------------------------------------------------------------
+    #
+    # The methods below expose the road profile in the **distance** domain,
+    # which is the natural argument for any road–wheel contact computation.
+    # They live alongside the time-domain API (displacement_output,
+    # velocity_output) which remains the InputRouter-facing interface.
+    #
+    # Relation:   u_t(t) = u_x(V*t),    du/dt = V * du/dx
+    # so a consumer that has a wheel at horizontal position x can call
+    # height_at_distance(x) directly without going through vehicle_speed.
+
+    def height_at_distance(self, x: float) -> float:
+        """Return road profile height u(x) at horizontal distance x [m].
+
+        Outside the sampled domain [0, V*duration] the value clamps to the
+        nearest boundary sample (matches spatial_profile semantics).
+        """
+        return self.spatial_profile(float(x))
+
+    def slope_at_distance(self, x: float) -> float:
+        """Return road profile slope du/dx at horizontal distance x [m/m].
+
+        Computed via central finite differences against the stored profile
+        samples; uses one-sided differences at the endpoints. Outside the
+        sampled domain the value clamps to the nearest boundary slope.
+        """
+        gradients = self._spatial_gradients()
+        target_distance = float(x)
+        if target_distance <= self._distance[0]:
+            return float(gradients[0])
+        if target_distance >= self._distance[-1]:
+            return float(gradients[-1])
+        for index in range(1, len(self._distance)):
+            left = self._distance[index - 1]
+            right = self._distance[index]
+            if target_distance <= right:
+                ratio = (target_distance - left) / max(right - left, 1e-12)
+                return float(gradients[index - 1] * (1.0 - ratio) + gradients[index] * ratio)
+        return float(gradients[-1])
+
+    def _spatial_gradients(self) -> list[float]:
+        """Compute du/dx at every stored sample (cached on first call)."""
+        cached = getattr(self, "_cached_gradients", None)
+        if cached is not None:
+            return cached
+        gradients: list[float] = []
+        for index, value in enumerate(self._road):
+            if index == 0:
+                dv = self._road[1] - value
+                dx = self._distance[1] - self._distance[0]
+            elif index == len(self._road) - 1:
+                dv = value - self._road[index - 1]
+                dx = self._distance[index] - self._distance[index - 1]
+            else:
+                dv = self._road[index + 1] - self._road[index - 1]
+                dx = self._distance[index + 1] - self._distance[index - 1]
+            gradients.append(dv / max(dx, 1e-12))
+        self._cached_gradients = gradients
+        return gradients
+
+    # ------------------------------------------------------------------
+
     def displacement_output(self, time: float) -> float:
         return self.spatial_profile(self.parameters["vehicle_speed"] * time)
 
