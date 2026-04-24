@@ -30,9 +30,23 @@ class RandomRoad(SignalSource):
         vehicle_speed: float,
         dt: float,
         duration: float,
+        max_height: float | None = None,
+        max_slope: float | None = None,
+        min_feature_width: float = 0.0,
+        wheel_radius_reference: float = 0.0,
         name: str = "Random Road",
     ) -> None:
         super().__init__(component_id, name=name)
+        # Coordinate min_feature_width with wheel_radius_reference: a road
+        # populated with features narrower than the contacting wheel diameter
+        # produces non-physical excitation (the wheel cannot resolve sub-2R
+        # detail). When the user supplies a wheel reference, take the larger
+        # of the two limits — user agency preserved, but feature width never
+        # falls below 2R.
+        effective_feature_width = max(
+            float(min_feature_width),
+            2.0 * float(wheel_radius_reference),
+        )
         self.parameters.update(
             {
                 "amplitude": amplitude,
@@ -41,6 +55,11 @@ class RandomRoad(SignalSource):
                 "vehicle_speed": vehicle_speed,
                 "dt": dt,
                 "duration": duration,
+                "max_height": max_height,
+                "max_slope": max_slope,
+                "min_feature_width": float(min_feature_width),
+                "wheel_radius_reference": float(wheel_radius_reference),
+                "effective_feature_width": effective_feature_width,
             }
         )
         step_count = max(int(duration / dt) + 1, 2)
@@ -56,16 +75,96 @@ class RandomRoad(SignalSource):
             noise = rng.standard_normal(sample_count)
             road = signal.lfilter([1.0 - alpha], [1.0, -alpha], noise)
             road *= self.parameters["amplitude"]
-            return road.tolist()
-
-        rng = random.Random(int(self.parameters["seed"]))
-        road: list[float] = []
-        filtered = 0.0
-        for _ in range(sample_count):
-            white = rng.gauss(0.0, 1.0)
-            filtered = alpha * filtered + (1.0 - alpha) * white
-            road.append(filtered * self.parameters["amplitude"])
+            road = road.tolist()
+        else:
+            rng = random.Random(int(self.parameters["seed"]))
+            road = []
+            filtered = 0.0
+            for _ in range(sample_count):
+                white = rng.gauss(0.0, 1.0)
+                filtered = alpha * filtered + (1.0 - alpha) * white
+                road.append(filtered * self.parameters["amplitude"])
+        # Faz 4b — Post-processing pipeline (order matters):
+        #   1) feature-width smoothing  : suppresses sub-wheel-resolution detail
+        #   2) slope limiting           : iteratively softens cliffs (|du/dx| <= max_slope)
+        #   3) height clamping          : final symmetric clip (|u(x)| <= max_height)
+        # Each stage is a no-op when its parameter is left at its default
+        # (effective_feature_width=0, max_slope=None, max_height=None), so the
+        # legacy behavior — filtered noise scaled by amplitude — is preserved.
+        road = self._apply_feature_width_smoothing(road)
+        road = self._apply_slope_limit(road)
+        road = self._apply_height_clamp(road)
         return road
+
+    def _apply_feature_width_smoothing(self, road: list[float]) -> list[float]:
+        """Suppress features narrower than `effective_feature_width` via a
+        moving-average low-pass (window sized in samples)."""
+        feature_width = self.parameters["effective_feature_width"]
+        if feature_width <= 0.0 or len(road) < 3:
+            return road
+        # Sample spacing in distance: dx = V * dt
+        dx = max(self.parameters["vehicle_speed"] * self.parameters["dt"], 1e-12)
+        window_samples = int(round(feature_width / dx))
+        if window_samples < 2:
+            return road
+        # Symmetric moving average; clamp window to profile length.
+        window_samples = min(window_samples, len(road))
+        half = window_samples // 2
+        smoothed: list[float] = []
+        n = len(road)
+        for i in range(n):
+            lo = max(0, i - half)
+            hi = min(n, i + half + 1)
+            window = road[lo:hi]
+            smoothed.append(sum(window) / len(window))
+        return smoothed
+
+    def _apply_slope_limit(self, road: list[float]) -> list[float]:
+        """Iteratively soften any segment whose slope exceeds max_slope.
+
+        On each pass we walk the profile, locate any |du/dx| > max_slope and
+        relax the offending sample toward the average of its neighbors. The
+        process repeats until no segment violates the limit (capped at a
+        fixed iteration budget so a pathological input cannot loop forever)."""
+        max_slope = self.parameters["max_slope"]
+        if max_slope is None or len(road) < 3:
+            return road
+        max_slope = float(max_slope)
+        if max_slope <= 0.0:
+            return road
+        dx = max(self.parameters["vehicle_speed"] * self.parameters["dt"], 1e-12)
+        max_step = max_slope * dx  # max permissible |u[i] - u[i-1]|
+        result = list(road)
+        # Iteration budget: enough to propagate corrections across the whole
+        # profile under realistic inputs; small enough to bound worst-case time.
+        max_iterations = 200
+        for _iteration in range(max_iterations):
+            violated = False
+            for i in range(1, len(result)):
+                step = result[i] - result[i - 1]
+                if abs(step) > max_step:
+                    violated = True
+                    # Pull the offending sample halfway toward its neighbor;
+                    # repeated passes converge on a slope-limited profile
+                    # without introducing sharp clipping artifacts.
+                    correction = (abs(step) - max_step) * 0.5
+                    if step > 0:
+                        result[i] -= correction
+                    else:
+                        result[i] += correction
+            if not violated:
+                break
+        return result
+
+    def _apply_height_clamp(self, road: list[float]) -> list[float]:
+        """Symmetric clamp: |u(x)| <= max_height."""
+        max_height = self.parameters["max_height"]
+        if max_height is None:
+            return road
+        max_height = float(max_height)
+        if max_height < 0.0:
+            return road  # nonsensical; treat as disabled
+        return [max(-max_height, min(max_height, value)) for value in road]
 
     def spatial_profile(self, distance: float) -> float:
         if distance <= self._distance[0]:
