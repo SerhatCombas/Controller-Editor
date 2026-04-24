@@ -63,7 +63,7 @@ _module_ComponentIoRole_orig = None
 
 
 def _install_role_shim() -> None:
-    """Make ComponentIoRole available without PySide6."""
+    """Make ComponentIoRole and COMPONENT_CATALOG available without PySide6."""
     import sys
     import types
 
@@ -75,6 +75,30 @@ def _install_role_shim() -> None:
             OUTPUT = "output"
 
         fake_mod.ComponentIoRole = _FakeComponentIoRole
+
+        from dataclasses import dataclass as _dataclass
+        from collections.abc import Callable as _Callable
+        from typing import Any as _Any
+
+        @_dataclass(frozen=True)
+        class _FakeVisualSpec:
+            type_key: str
+            core_factory: _Callable[[str], _Any] | None = None
+
+        from app.core.models.mechanical import Damper, Mass, MechanicalGround, Spring, Wheel
+        from app.core.models.sources import RandomRoad, StepForce
+
+        fake_mod.COMPONENT_CATALOG = {
+            "mass":                        _FakeVisualSpec("mass",                        lambda cid: Mass(cid, mass=1.0)),
+            "wheel":                       _FakeVisualSpec("wheel",                       lambda cid: Wheel(cid, mass=1.0)),
+            "translational_spring":        _FakeVisualSpec("translational_spring",        lambda cid: Spring(cid, stiffness=1.0)),
+            "translational_damper":        _FakeVisualSpec("translational_damper",        lambda cid: Damper(cid, damping=1.0)),
+            "tire_stiffness":              _FakeVisualSpec("tire_stiffness",              lambda cid: Spring(cid, stiffness=1.0)),
+            "mechanical_reference":        _FakeVisualSpec("mechanical_reference",        lambda cid: MechanicalGround(cid)),
+            "mechanical_random_reference": _FakeVisualSpec("mechanical_random_reference", lambda cid: RandomRoad(cid, amplitude=0.03, roughness=0.35, seed=7, vehicle_speed=6.0, dt=0.01, duration=15.0)),
+            "ideal_force_source":          _FakeVisualSpec("ideal_force_source",          lambda cid: StepForce(cid, amplitude=1.0)),
+        }
+
         sys.modules["app.ui.canvas.component_system"] = fake_mod
 
     # Ensure our _Component uses the same enum as the compiler

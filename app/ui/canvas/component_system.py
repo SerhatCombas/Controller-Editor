@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 import math
 from pathlib import Path
+from typing import TYPE_CHECKING
 import warnings
+
+if TYPE_CHECKING:
+    from app.core.base.component import BaseComponent
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
@@ -171,6 +176,7 @@ class ComponentVisualSpec:
     selection_name_visible: bool = True
     presentation: ComponentPresentationStyle = field(default_factory=ComponentPresentationStyle)
     svg_symbol: SvgSymbolAsset | None = None
+    core_factory: Callable[[str], BaseComponent | None] | None = None
 
 
 @dataclass(slots=True)
@@ -1126,6 +1132,8 @@ class ComponentRenderer:
 
 
 def build_component_catalog() -> dict[str, ComponentVisualSpec]:
+    from app.core.models.mechanical import Damper, Mass, MechanicalGround, Spring, Wheel
+    from app.core.models.sources import RandomRoad, StepForce
     return {
         "mechanical_random_reference": ComponentVisualSpec(
             type_key="mechanical_random_reference",
@@ -1138,6 +1146,7 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             allowed_io_roles=(ComponentIoRole.INPUT,),
             preferred_io_axis=ComponentIoAxis.HORIZONTAL,
             minimum_size=(96.0, 60.0),
+            core_factory=lambda cid: RandomRoad(cid, amplitude=0.03, roughness=0.35, seed=7, vehicle_speed=6.0, dt=0.01, duration=15.0),
         ),
         "mass": ComponentVisualSpec(
             type_key="mass",
@@ -1174,6 +1183,7 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
                 emphasis_padding=(18.0, 12.0, 18.0, 12.0),
             ),
             svg_symbol=component_svg_asset("Mass_Icon_new.svg", normalization_group="mechanical_passive_vertical", padding=(18.0, 8.0, 18.0, 8.0)),
+            core_factory=lambda cid: Mass(cid, mass=1.0),
         ),
         "translational_spring": ComponentVisualSpec(
             type_key="translational_spring",
@@ -1212,6 +1222,7 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
                 emphasis_padding=(24.0, 28.0, 24.0, 28.0),
             ),
             svg_symbol=component_svg_asset("Spring_Icon_new.svg", normalization_group="mechanical_passive_vertical"),
+            core_factory=lambda cid: Spring(cid, stiffness=1.0),
         ),
         "translational_damper": ComponentVisualSpec(
             type_key="translational_damper",
@@ -1251,6 +1262,7 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
                 emphasis_padding=(24.0, 26.0, 24.0, 26.0),
             ),
             svg_symbol=component_svg_asset("Damper_Icon_new.svg", normalization_group="mechanical_passive_vertical"),
+            core_factory=lambda cid: Damper(cid, damping=1.0),
         ),
         "wheel": ComponentVisualSpec(
             type_key="wheel",
@@ -1269,6 +1281,7 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             preferred_symbol_aspect_ratio=1.0,
             minimum_size=(120.0, 120.0),
             svg_symbol=component_svg_asset("Wheel_black.svg", normalization_group="mechanical_rotary"),
+            core_factory=lambda cid: Wheel(cid, mass=1.0),
         ),
         "tire_stiffness": ComponentVisualSpec(
             type_key="tire_stiffness",
@@ -1283,6 +1296,7 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             ),
             simulation_hooks=SimulationVisualHooks(supports_deformation=True, endpoint_deformation=True, display_scale=1.0),
             allowed_io_roles=(ComponentIoRole.OUTPUT,),
+            core_factory=lambda cid: Spring(cid, stiffness=1.0),
         ),
         "mechanical_reference": ComponentVisualSpec(
             type_key="mechanical_reference",
@@ -1303,6 +1317,7 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             preferred_io_axis=ComponentIoAxis.VERTICAL,
             minimum_size=(180.0, 30.0),
             svg_symbol=component_svg_asset("Reference_Icon_new.svg", normalization_group="mechanical_boundary", padding=(18.0, 6.0, 18.0, 6.0)),
+            core_factory=lambda cid: MechanicalGround(cid),
         ),
         "translational_free_end": ComponentVisualSpec(
             type_key="translational_free_end",
@@ -1570,6 +1585,7 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             preferred_symbol_aspect_ratio=110.0 / 150.0,
             minimum_size=(76.0, 110.0),
             svg_symbol=component_svg_asset("Ideal_Force_source.svg", normalization_group="mechanical_source_sensor_vertical"),
+            core_factory=lambda cid: StepForce(cid, amplitude=1.0),
         ),
         "ideal_torque_source": ComponentVisualSpec(
             type_key="ideal_torque_source",

@@ -56,8 +56,7 @@ from app.core.base.connection import Connection
 from app.core.base.domain import MECHANICAL_TRANSLATIONAL_DOMAIN
 from app.core.base.node import Node
 from app.core.graph.system_graph import SystemGraph
-from app.core.models.mechanical import Damper, Mass, MechanicalGround, Spring, Wheel
-from app.core.models.sources import RandomRoad, StepForce
+from app.core.models.mechanical import MechanicalGround
 from app.core.probes import BaseProbe
 from app.core.symbolic.output_kind import (
     OutputKind,
@@ -332,30 +331,11 @@ class CanvasCompiler:
         comp_id: str,
         type_key: str,
     ) -> BaseComponent | None:
-        """Instantiate the core model component for a given canvas type_key."""
-        if type_key == "mass":
-            return Mass(comp_id, mass=1.0)
-        if type_key == "wheel":
-            return Wheel(comp_id, mass=1.0)
-        if type_key in ("translational_spring", "tire_stiffness"):
-            return Spring(comp_id, stiffness=1.0)
-        if type_key == "translational_damper":
-            return Damper(comp_id, damping=1.0)
-        if type_key == "mechanical_reference":
-            return MechanicalGround(comp_id)
-        if type_key == "mechanical_random_reference":
-            return RandomRoad(
-                comp_id,
-                amplitude=0.03,
-                roughness=0.35,
-                seed=7,
-                vehicle_speed=6.0,
-                dt=0.01,
-                duration=15.0,
-            )
-        if type_key == "ideal_force_source":
-            return StepForce(comp_id, amplitude=1.0)
-        # Unknown / unsupported type — silently skip
+        """Delegate to ComponentVisualSpec.core_factory."""
+        from app.ui.canvas.component_system import COMPONENT_CATALOG
+        spec = COMPONENT_CATALOG.get(type_key)
+        if spec is not None and spec.core_factory is not None:
+            return spec.core_factory(comp_id)
         return None
 
     # ------------------------------------------------------------------
