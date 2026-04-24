@@ -373,11 +373,22 @@ class ModelCanvas(QWidget):
     def update_visualization(self, data: dict[str, object]) -> None:
         self._animation.update(data)
         runtime = data.get("runtime_outputs") or {}
+        # Detect motion from two sources:
+        # 1) runtime_outputs dict (carries every backend output, used by main_window)
+        # 2) top-level animation fields (used when callers pass road/displacement
+        #    data directly, e.g. partial road-profile updates without a full
+        #    runtime_outputs payload). Both pathways are valid; treat any nonzero
+        #    motion or any populated road profile as active animation.
+        motion_keys = ("body_displacement", "wheel_displacement", "road_height")
         has_motion = any(
             abs(float(v)) > 1e-9
             for v in runtime.values()
             if isinstance(v, (int, float))
-        )
+        ) or any(
+            abs(float(data[key])) > 1e-9
+            for key in motion_keys
+            if key in data and isinstance(data[key], (int, float))
+        ) or bool(data.get("road_x")) and bool(data.get("road_y"))
         if not has_motion:
             self._scene_animation_result = None
             self.update()
@@ -469,7 +480,13 @@ class ModelCanvas(QWidget):
                 component_index=resize_hit["index"],
                 corner=resize_hit["corner"],
                 start_scene_pos=scene_pos,
-                start_rect=self._dynamic_rect(self._components[resize_hit["index"]]),
+                # Resize operates on authored geometry (component.position/size).
+                # The visible handles are placed at the authored rect (see
+                # _resize_handles_for_component), so the starting rect must match.
+                # Using _dynamic_rect here would make a single-pixel drag during
+                # active simulation produce a position jump equal to the runtime
+                # stretch — visually surprising and physically meaningless.
+                start_rect=self._component_rect(self._components[resize_hit["index"]]),
             )
             self.update()
             event.accept()
@@ -1182,7 +1199,11 @@ class ModelCanvas(QWidget):
 
     def _resize_handles_for_component(self, index: int) -> list[ResizeHandleState]:
         component = self._components[index]
-        rect = component.selection_overlay_rect(self._dynamic_rect(component))
+        # Resize handles must follow authored geometry, not runtime visualization.
+        # Resizing modifies the component's stored size/position; runtime stretch
+        # (suspension extension, wheel displacement, etc.) is a transient overlay
+        # on top of the authored shape and must not move the handles.
+        rect = component.selection_overlay_rect(self._component_rect(component))
         size = 10.0
         half = size / 2.0
         centers = {
