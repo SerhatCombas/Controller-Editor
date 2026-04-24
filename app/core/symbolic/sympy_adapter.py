@@ -13,6 +13,7 @@ class SympyAdapter:
 
     DERIVATIVE_PATTERN = re.compile(r"d/dt\s+([A-Za-z_][A-Za-z0-9_]*)")
     TOKEN_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    FUNCTION_CALL_PATTERN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 
     def __init__(self) -> None:
         self.available = sp is not None
@@ -26,9 +27,15 @@ class SympyAdapter:
             return lhs_text, rhs_text, None
 
         local_dict = {"Heaviside": sp.Heaviside}
-        lhs_expr = self._to_sympy_expr(lhs_text, local_dict)
-        rhs_expr = self._to_sympy_expr(rhs_text, local_dict)
-        return lhs_text, rhs_text, sp.Eq(lhs_expr, rhs_expr)
+        try:
+            lhs_expr = self._to_sympy_expr(lhs_text, local_dict)
+            rhs_expr = self._to_sympy_expr(rhs_text, local_dict)
+            return lhs_text, rhs_text, sp.Eq(lhs_expr, rhs_expr)
+        except (ValueError, TypeError, SyntaxError):
+            # Non-parseable pseudo-equations (e.g. stub descriptions like
+            # "filtered_white_noise(seed=7)") fall through with sympy_expression=None.
+            # Callers that need structural sympy must check for None.
+            return lhs_text, rhs_text, None
 
     def extract_tokens(self, text: str) -> list[str]:
         return sorted(set(self.TOKEN_PATTERN.findall(text)))
@@ -41,10 +48,18 @@ class SympyAdapter:
         transformed = transformed.replace("^", "**")
         transformed = transformed.replace("step(", "Heaviside(")
 
+        # Tokens used as function calls (name followed by '(') must be declared
+        # as sp.Function, not sp.Symbol, otherwise sympify raises TypeError.
+        function_tokens = set(self.FUNCTION_CALL_PATTERN.findall(transformed))
+
         for token in sorted(set(self.TOKEN_PATTERN.findall(transformed))):
             if token in {"Heaviside"}:
                 continue
-            if token not in local_dict:
+            if token in local_dict:
+                continue
+            if token in function_tokens:
+                local_dict[token] = sp.Function(token)
+            else:
                 local_dict[token] = sp.Symbol(token)
 
         return sp.sympify(transformed, locals=local_dict)
