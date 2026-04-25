@@ -19,6 +19,14 @@ from typing import Literal
 
 
 StateKind = Literal[
+    # Energy-storage classifications used by the mechanical/electrical/thermal
+    # domains today. These names match the runtime values returned by the
+    # current Mass / Spring / Wheel implementations.
+    "inertial",                # mass-like: stores kinetic energy (Mass, Wheel)
+    "potential",               # spring-like: stores potential energy (Spring)
+    "transducer",              # state-less force/displacement passthrough
+                               # (Faz 4d-2b: Wheel with mass=0)
+    # Canonical state-pair classifications retained for future use.
     "position_velocity",       # mechanical translational: x, v
     "angle_angular_velocity",  # mechanical rotational: theta, omega
     "charge_voltage",          # electrical capacitance: q, v_C

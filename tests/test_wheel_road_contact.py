@@ -215,5 +215,80 @@ class TestWheelMassContributionPreserved(unittest.TestCase):
         self.assertEqual(len(legacy_ports), len(new_ports))
 
 
+class TestWheelTransducerMode(unittest.TestCase):
+    """Faz 4d-2b: mass=0.0 puts the wheel into transducer mode at the API level.
+
+    The four polymorphic methods all agree on the criterion mass==0:
+    - get_states() returns []
+    - constitutive_equations() returns [] (4f Mode A populates it)
+    - get_state_contribution() reports state_kind="transducer", dof_count=0
+    - contribute_mass() returns []
+
+    These tests only check the API surface. Pipeline integration
+    (dae_reducer, equation_builder honoring the transducer state_kind)
+    is intentionally out of scope here — Faz 4d-2c handles that.
+    """
+
+    def test_transducer_get_states_empty(self):
+        """A mass=0 wheel owns no integration state."""
+        w = Wheel("w", mass=0.0)
+        self.assertEqual(w.get_states(), [])
+
+    def test_transducer_constitutive_equations_empty(self):
+        """4d-2b leaves the algebraic passthrough unimplemented; 4f Mode A
+        will fill it. For now we assert the slot is empty so 4f can detect
+        that it needs to populate it (rather than appending blindly)."""
+        w = Wheel("w", mass=0.0)
+        self.assertEqual(w.constitutive_equations(), [])
+
+    def test_transducer_state_contribution(self):
+        """state_kind=='transducer', dof_count=0, no inertial energy storage."""
+        w = Wheel("w", mass=0.0)
+        sc = w.get_state_contribution()
+        self.assertEqual(sc.state_kind, "transducer")
+        self.assertEqual(sc.dof_count, 0)
+        self.assertFalse(sc.stores_inertial_energy)
+        self.assertFalse(sc.stores_potential_energy)
+        self.assertIsNone(sc.owning_port_name)
+
+    def test_transducer_contribute_mass_empty_even_when_port_a_connected(self):
+        """Even with port_a wired to a node, a mass=0 wheel produces no
+        mass-matrix entry — that is precisely what 'transducer' means."""
+        w = Wheel("w", mass=0.0)
+        w.port("port_a").connect_to("nx")
+        contributions = w.contribute_mass({"nx": 0})
+        self.assertEqual(contributions, [])
+
+
+class TestWheelMassPositiveBehaviorParity(unittest.TestCase):
+    """Faz 4d-2b parity guard: mass>0 path must remain bit-for-bit identical
+    to the pre-4d-2b implementation. We compare against Mass with the same
+    component_id and mass — the same parity check that 4d-2a established —
+    to ensure the new branching did not perturb the inertial path."""
+
+    def test_states_match_mass_when_mass_positive(self):
+        from app.core.models.mechanical import Mass
+        w = Wheel("x", mass=12.5)
+        m = Mass("x", mass=12.5)
+        self.assertEqual(w.get_states(), m.get_states())
+
+    def test_equations_match_mass_when_mass_positive(self):
+        from app.core.models.mechanical import Mass
+        w = Wheel("x", mass=12.5)
+        m = Mass("x", mass=12.5)
+        self.assertEqual(w.constitutive_equations(), m.constitutive_equations())
+
+    def test_state_contribution_matches_mass_when_mass_positive(self):
+        from app.core.models.mechanical import Mass
+        w = Wheel("x", mass=12.5)
+        m = Mass("x", mass=12.5)
+        w_sc = w.get_state_contribution()
+        m_sc = m.get_state_contribution()
+        self.assertEqual(w_sc.state_kind, m_sc.state_kind)
+        self.assertEqual(w_sc.dof_count, m_sc.dof_count)
+        self.assertEqual(w_sc.stores_inertial_energy, m_sc.stores_inertial_energy)
+        self.assertEqual(w_sc.owning_port_name, m_sc.owning_port_name)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -22,25 +22,29 @@ WHEEL_OUTPUT_MODES = ("displacement", "force")
 class Wheel(BaseComponent):
     """Wheel component — mechanical inertia plus a road-contact interface.
 
-    Faz 4d-2a status:
-      * No longer inherits from Mass — Wheel is its own first-class
-        component. The mass-related logic (port_a / reference_port,
-        get_states, constitutive_equations, contribute_mass,
-        get_state_contribution) is reproduced inline so behavior is
-        bit-for-bit identical to the previous Mass-based implementation
-        when mass > 0.
+    Faz 4d-2b status (current):
+      * mass == 0.0 → transducer mode (state-less passthrough).
+        get_states returns [], get_state_contribution reports dof_count=0
+        and state_kind="transducer", contribute_mass returns [],
+        constitutive_equations returns [] (4f Mode A will populate the
+        algebraic passthrough). Pipeline integration (dae_reducer,
+        equation_builder) is deferred to 4d-2c.
+      * mass > 0.0 → Mass-equivalent behavior, bit-for-bit identical to
+        the pre-4d-2b implementation. Existing quarter-car simulations
+        are unaffected.
       * road_contact_port (added in 4d-1) is preserved.
-      * mass=0.0 still produces a Mass-like component with a zero
-        contribution; in Faz 4d-2b that case will switch to "transducer
-        mode" (no state, contribute_mass returns []).
+
+    Faz 4d-2a status (preserved):
+      * No longer inherits from Mass — Wheel is its own first-class
+        BaseComponent. Mass-related logic was reproduced inline.
 
     Why split from Mass:
       * Single responsibility: Wheel will gain transducer behavior
         (force output, contact dynamics) that Mass should not carry.
       * Future parameters (rotational_inertia, rolling_resistance) live
         naturally on Wheel, awkwardly on Mass.
-      * Lets mass=0 mean "no inertia" cleanly in 4d-2b, without
-        spilling that semantics back into Mass.
+      * mass=0 means "no inertia" cleanly, without spilling that
+        semantics back into Mass.
 
     Parameter philosophy (from 4d-1, unchanged):
       * mass is required: kullanıcı bilinçli bir karar olarak verir.
@@ -166,15 +170,41 @@ class Wheel(BaseComponent):
         )
 
     # ------------------------------------------------------------------
-    # Mass-equivalent dynamics — copied from Mass so simulations of the
-    # legacy quarter-car template produce identical results. 4d-2b will
-    # introduce a mass=0 short-circuit that switches to transducer mode.
+    # Dynamics — Mass-equivalent when mass > 0, transducer when mass == 0.
+    #
+    # Faz 4d-2b introduced the mass==0 branches: in transducer mode the
+    # wheel owns no integration state and contributes nothing to the mass
+    # matrix. Constitutive equations are returned empty for now — Faz 4f
+    # (Mode A) will fill them with the algebraic passthrough relating
+    # road_contact_port to port_a once that port is wired up.
+    #
+    # The mass>0 branches are bit-for-bit identical to the previous
+    # Mass-based implementation so the legacy quarter-car template
+    # continues to produce identical simulation output.
     # ------------------------------------------------------------------
 
+    def _is_transducer(self) -> bool:
+        """Whether this wheel currently behaves as a state-less transducer.
+
+        Centralised here so all four polymorphic methods agree on the same
+        criterion: mass exactly zero. The user expresses "no inertia" by
+        passing mass=0.0 deliberately (mass is a required keyword arg).
+        """
+        return float(self.parameters["mass"]) == 0.0
+
     def get_states(self) -> list[str]:
+        if self._is_transducer():
+            return []
         return [f"x_{self.id}", f"v_{self.id}"]
 
     def constitutive_equations(self) -> list[str]:
+        if self._is_transducer():
+            # Transducer mode: state-less algebraic passthrough.
+            # Faz 4f (Mode A) will populate the algebraic relation between
+            # road_contact_port and port_a here. Until then we return [],
+            # which keeps the behavior outside the (still pipeline-pending)
+            # transducer path unchanged.
+            return []
         m = self.parameters["mass"]
         return [
             f"d/dt x_{self.id} = v_{self.id}",
@@ -188,6 +218,19 @@ class Wheel(BaseComponent):
 
     def get_state_contribution(self) -> StateContribution:
         from app.core.base.state_contribution import StateContribution
+        if self._is_transducer():
+            # Transducer wheel owns no DoF; signal this via state_kind and
+            # dof_count=0. The reducer/equation-builder pipeline does not
+            # yet act on this (4d-2c will), but components and tests can
+            # already inspect the contribution and reason about transducer
+            # wheels at the API level.
+            return StateContribution(
+                stores_inertial_energy=False,
+                stores_potential_energy=False,
+                state_kind="transducer",
+                dof_count=0,
+                owning_port_name=None,
+            )
         return StateContribution(
             stores_inertial_energy=True,
             stores_potential_energy=False,
@@ -199,11 +242,13 @@ class Wheel(BaseComponent):
     def contribute_mass(self, node_index: dict[str, int]) -> list[MatrixContribution]:
         """Diagonal mass-matrix entry: M[i,i] += m.
 
-        Behavior is identical to the Mass implementation that Wheel
-        previously inherited from. 4d-2b will add a `mass == 0.0`
-        short-circuit returning [], which switches the wheel to
-        transducer mode (no inertial DOF contribution).
+        In transducer mode (mass == 0) returns [] — the wheel does not
+        introduce any inertial DOF, so it cannot contribute to the mass
+        matrix. The mass>0 path matches the prior Mass-inherited
+        implementation bit-for-bit.
         """
+        if self._is_transducer():
+            return []
         import sympy
         from app.core.base.contribution import MatrixContribution
 
