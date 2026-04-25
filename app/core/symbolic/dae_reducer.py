@@ -86,6 +86,46 @@ class DAEReducer:
                     node_index=node_index,
                     source_node_to_input=source_node_to_input,
                 )
+            elif record["type"] == "Wheel":
+                # Faz 4f-1 — Wheel with an active road_contact_port carries
+                # tire-like contact dynamics analogous to a Spring (and a
+                # Damper) bridging port_a to road_contact_port. We emit a
+                # K-matrix branch with coefficient=contact_stiffness and a
+                # C-matrix branch with coefficient=contact_damping, treating
+                # road_contact_port as the "second port" of the branch.
+                # When road_contact_port is unconnected we skip both — the
+                # wheel is then just a Mass and contributes nothing here
+                # (the mass entry is handled in the mass_records loop above).
+                # When the wheel is in transducer mode (mass=0.0) Faz 4d-2c
+                # already excluded it from mass_records via dof_count=0;
+                # the branch contribution is unaffected by that — a
+                # transducer wheel can still bridge port_a ↔ road_contact_port
+                # if anyone wires it up. Faz 4f-2 will handle that case.
+                # Note: this is deliberately a string-based class-name check
+                # paralleling Spring/Damper. A polymorphic
+                # contribute_stiffness / contribute_damping API is a Wave 2
+                # refactor target (see Faz 4j roadmap).
+                if record["port_nodes"].get("road_contact_port") is not None:
+                    self._accumulate_branch(
+                        component_record=record,
+                        coefficient=record["parameters"]["contact_stiffness"],
+                        matrix=stiffness_matrix,
+                        input_matrix=input_matrix,
+                        node_index=node_index,
+                        source_node_to_input=source_node_to_input,
+                        port_a_name="port_a",
+                        port_b_name="road_contact_port",
+                    )
+                    self._accumulate_branch(
+                        component_record=record,
+                        coefficient=record["parameters"]["contact_damping"],
+                        matrix=damping_matrix,
+                        input_matrix=input_matrix,
+                        node_index=node_index,
+                        source_node_to_input=source_node_to_input,
+                        port_a_name="port_a",
+                        port_b_name="road_contact_port",
+                    )
         for input_idx, record in force_source_records:
             drive_node = record["port_nodes"].get("port")
             reference_node = record["port_nodes"].get("reference_port")
@@ -291,10 +331,17 @@ class DAEReducer:
         input_matrix: list[list[float]],
         node_index: dict[str, int],
         source_node_to_input: dict[str, int],
+        port_a_name: str = "port_a",
+        port_b_name: str = "port_b",
     ) -> None:
+        # Faz 4f-1 — port_a_name / port_b_name parameters allow non-Spring
+        # branch elements (Wheel's port_a ↔ road_contact_port pairing) to
+        # reuse the same matrix-accumulation logic. Default values match
+        # the historical Spring/Damper two-port convention so existing
+        # callers stay bit-for-bit identical.
         port_nodes = component_record["port_nodes"]
-        node_a = port_nodes.get("port_a")
-        node_b = port_nodes.get("port_b")
+        node_a = port_nodes.get(port_a_name)
+        node_b = port_nodes.get(port_b_name)
         idx_a = node_index.get(node_a) if node_a is not None else None
         idx_b = node_index.get(node_b) if node_b is not None else None
         input_a = source_node_to_input.get(node_a) if node_a is not None else None
