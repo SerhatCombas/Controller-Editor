@@ -338,11 +338,21 @@ class TestCanvasCompilerQuarterCar(unittest.TestCase):
         self.assertEqual(gnd, graph.get_port("disturbance_source.reference_port").node_id)
 
     def test_four_distinct_nodes(self):
-        """Quarter-car canvas: body DOF, wheel DOF, road/tire node, ground → 4 nodes."""
+        """Quarter-car canvas: body DOF, wheel DOF, road/tire node, ground,
+        plus the unconnected wheel.road_contact_port → 5 nodes total.
+
+        The road_contact_port was added in Faz 4d-1 as preparation for the
+        Wheel/RandomRoad refactor. It is unconnected in this template (the
+        existing wire structure still uses port_a/tire_stiffness), so it
+        sits on its own node. Faz 4e will rewire the template to connect
+        road_contact_port directly to RandomRoad and drop tire_stiffness,
+        at which point the node count returns to 4 (the road_contact node
+        replaces the old road/tire node).
+        """
         graph = self._build()
         node_ids = {port.node_id for comp in graph.components.values()
                     for port in comp.ports if port.node_id is not None}
-        self.assertEqual(len(node_ids), 4, f"Expected 4 nodes, got {sorted(node_ids)}")
+        self.assertEqual(len(node_ids), 5, f"Expected 5 nodes, got {sorted(node_ids)}")
 
     def test_selected_input_output(self):
         graph = self._build()
