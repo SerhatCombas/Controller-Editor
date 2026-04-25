@@ -357,3 +357,214 @@ class Wheel(BaseComponent):
                 equation_reference=f"M[{i},{i}] += m_{self.id}",
             )
         ]
+
+    def contribute_stiffness(self, node_index: dict[str, int]) -> list[MatrixContribution]:
+        """Faz 4f-1.5 — Polymorphic K-matrix branch for the road-contact port.
+
+        Mirrors Spring.contribute_stiffness for the (port_a ↔ road_contact_port)
+        pair, with coefficient = contact_stiffness. This is the polymorphic
+        twin of the string-based dae_reducer Wheel branch added in 4f-1; the
+        legacy DAEReducer reads `parameters["contact_stiffness"]` directly,
+        the PolymorphicDAEReducer reads via this method. Without this
+        polymorphic implementation the symbolic backends running under
+        DEFAULT_FLAGS (parity_mode=PRIMARY) silently lose the tire stiffness
+        contribution when the template's tire_stiffness Spring is removed
+        and replaced by Wheel.road_contact_port.
+
+        Returns [] when:
+          * The wheel is in transducer mode (mass==0). Faz 4j will revisit
+            this once the algebraic-passthrough story for transducers is
+            in place.
+          * road_contact_port is unconnected (free wheel — no contact law
+            emitted, nothing to contribute to K).
+          * Contact is disabled via disable_contact_force (tuning flag).
+
+        For an active road contact we emit the standard graph-Laplacian
+        4-entry pattern (i,i / j,j / i,j / j,i) just like Spring does. When
+        the road_contact_port maps to a displacement-source node (e.g.
+        RandomRoad), the PolymorphicDAEReducer's extended_index will return
+        a negative sentinel for that port: the off-diagonal coupling entry
+        then ends up in the input_matrix (B) rather than K, which is the
+        correct way to drive the wheel from a road profile. This mirrors
+        how Spring's `tire_stiffness ↔ road_source` branch worked
+        bit-for-bit pre-4j-1.
+        """
+        if self._is_transducer():
+            return []
+        if self.parameters.get("disable_contact_force", False):
+            return []
+        port_a = self.port("port_a")
+        port_road = self.port("road_contact_port")
+        if port_a.node_id is None or port_road.node_id is None:
+            return []
+
+        import sympy
+        from app.core.base.contribution import MatrixContribution
+
+        i = node_index.get(port_a.node_id)
+        j = node_index.get(port_road.node_id)
+
+        # If the road_contact_port's node is not in the (extended) node
+        # index — neither an active DOF nor a displacement-source sentinel —
+        # then the port is essentially "wired to nothing meaningful".
+        # CanvasCompiler may have allocated a fresh atomic node for an
+        # unconnected required=False port, but with no other component
+        # sharing that node there is no physical path for the contact
+        # branch. Behave like an unwired road_contact_port and emit no
+        # contribution (matches `_has_road_contact() == False` semantics
+        # at the polymorphic-API layer).
+        if j is None:
+            return []
+
+        k_sym = sympy.Symbol(f"k_contact_{self.id}")
+        k_val = self.parameters["contact_stiffness"]
+        node_ids = (port_a.node_id, port_road.node_id)
+        contribs: list[MatrixContribution] = []
+
+        # Diagonal entries (only emit for active DOFs — i.e. row/col >= 0).
+        if i is not None and i >= 0:
+            contribs.append(MatrixContribution(
+                row=i, col=i, value=k_sym,
+                component_id=self.id,
+                contribution_kind="stiffness",
+                connected_node_ids=node_ids,
+                physical_meaning=(
+                    f"Self-stiffness of {self.name} road contact "
+                    f"(contact_stiffness={k_val} N/m) at DOF {i}"
+                ),
+                equation_reference=f"K[{i},{i}] += k_contact_{self.id}",
+            ))
+        if j is not None and j >= 0:
+            contribs.append(MatrixContribution(
+                row=j, col=j, value=k_sym,
+                component_id=self.id,
+                contribution_kind="stiffness",
+                connected_node_ids=node_ids,
+                physical_meaning=(
+                    f"Self-stiffness of {self.name} road contact "
+                    f"(contact_stiffness={k_val} N/m) at DOF {j}"
+                ),
+                equation_reference=f"K[{j},{j}] += k_contact_{self.id}",
+            ))
+
+        # Off-diagonal coupling. j may be a negative sentinel (road as a
+        # displacement source); the reducer uses that sentinel to route
+        # this entry to the input_matrix instead of K.
+        if i is not None and j is not None:
+            contribs.append(MatrixContribution(
+                row=i, col=j, value=-k_sym,
+                component_id=self.id,
+                contribution_kind="stiffness",
+                connected_node_ids=node_ids,
+                physical_meaning=(
+                    f"Coupling stiffness of {self.name} road contact "
+                    f"between port_a (DOF {i}) and road_contact_port (col {j})"
+                ),
+                equation_reference=f"K[{i},{j}] -= k_contact_{self.id}",
+            ))
+            # Symmetric entry j,i — only emitted when j is an active DOF.
+            # When j is a negative displacement-source sentinel there is no
+            # row j to write into, so we skip (matches Spring's behavior).
+            if j >= 0 and i >= 0:
+                contribs.append(MatrixContribution(
+                    row=j, col=i, value=-k_sym,
+                    component_id=self.id,
+                    contribution_kind="stiffness",
+                    connected_node_ids=node_ids,
+                    physical_meaning=(
+                        f"Coupling stiffness of {self.name} road contact "
+                        f"between road_contact_port (DOF {j}) and port_a (DOF {i})"
+                    ),
+                    equation_reference=f"K[{j},{i}] -= k_contact_{self.id}",
+                ))
+
+        return contribs
+
+    def contribute_damping(self, node_index: dict[str, int]) -> list[MatrixContribution]:
+        """Faz 4f-1.5 — Polymorphic D-matrix branch for the road-contact port.
+
+        Mirror of contribute_stiffness with coefficient=contact_damping. See
+        contribute_stiffness for the why; this method exists for the same
+        reason. When contact_damping=0 (the legacy default for the deleted
+        tire_stiffness Spring) we still emit the four entries with value=0,
+        so that downstream traceability tools see the structural connectivity
+        — a 0-coefficient Damper-equivalent is not the same thing as no
+        connection at all. (Spring/Damper do the same.)
+        """
+        if self._is_transducer():
+            return []
+        if self.parameters.get("disable_contact_force", False):
+            return []
+        port_a = self.port("port_a")
+        port_road = self.port("road_contact_port")
+        if port_a.node_id is None or port_road.node_id is None:
+            return []
+
+        import sympy
+        from app.core.base.contribution import MatrixContribution
+
+        i = node_index.get(port_a.node_id)
+        j = node_index.get(port_road.node_id)
+
+        # Symmetric to contribute_stiffness: if road_contact_port's node
+        # is not in the extended index, behave as if the port is unwired
+        # and emit nothing.
+        if j is None:
+            return []
+
+        c_sym = sympy.Symbol(f"c_contact_{self.id}")
+        c_val = self.parameters["contact_damping"]
+        node_ids = (port_a.node_id, port_road.node_id)
+        contribs: list[MatrixContribution] = []
+
+        if i is not None and i >= 0:
+            contribs.append(MatrixContribution(
+                row=i, col=i, value=c_sym,
+                component_id=self.id,
+                contribution_kind="damping",
+                connected_node_ids=node_ids,
+                physical_meaning=(
+                    f"Self-damping of {self.name} road contact "
+                    f"(contact_damping={c_val} N·s/m) at DOF {i}"
+                ),
+                equation_reference=f"D[{i},{i}] += c_contact_{self.id}",
+            ))
+        if j is not None and j >= 0:
+            contribs.append(MatrixContribution(
+                row=j, col=j, value=c_sym,
+                component_id=self.id,
+                contribution_kind="damping",
+                connected_node_ids=node_ids,
+                physical_meaning=(
+                    f"Self-damping of {self.name} road contact "
+                    f"(contact_damping={c_val} N·s/m) at DOF {j}"
+                ),
+                equation_reference=f"D[{j},{j}] += c_contact_{self.id}",
+            ))
+
+        if i is not None and j is not None:
+            contribs.append(MatrixContribution(
+                row=i, col=j, value=-c_sym,
+                component_id=self.id,
+                contribution_kind="damping",
+                connected_node_ids=node_ids,
+                physical_meaning=(
+                    f"Coupling damping of {self.name} road contact "
+                    f"between port_a (DOF {i}) and road_contact_port (col {j})"
+                ),
+                equation_reference=f"D[{i},{j}] -= c_contact_{self.id}",
+            ))
+            if j >= 0 and i >= 0:
+                contribs.append(MatrixContribution(
+                    row=j, col=i, value=-c_sym,
+                    component_id=self.id,
+                    contribution_kind="damping",
+                    connected_node_ids=node_ids,
+                    physical_meaning=(
+                        f"Coupling damping of {self.name} road contact "
+                        f"between road_contact_port (DOF {j}) and port_a (DOF {i})"
+                    ),
+                    equation_reference=f"D[{j},{i}] -= c_contact_{self.id}",
+                ))
+
+        return contribs

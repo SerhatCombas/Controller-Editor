@@ -435,5 +435,220 @@ class TestModeBLinearizationInReducer(unittest.TestCase):
         self.assertIn("max(0,", contact_law)
 
 
+class TestWheelPolymorphicContributions(unittest.TestCase):
+    """Faz 4f-1.5 — Wheel.contribute_stiffness / contribute_damping.
+
+    The Wave-1 PolymorphicDAEReducer drives K/C from each component's
+    polymorphic contribute_* methods, NOT from the legacy DAEReducer's
+    string-based class-name branches. 4f-1 added the Wheel branch only
+    to the legacy reducer; 4f-1.5 closes the gap by providing matching
+    polymorphic methods.
+
+    Without these methods, a quarter-car whose tire-road coupling flows
+    through Wheel.road_contact_port (instead of a tire_stiffness Spring)
+    drops 180000 N/m of K-matrix contribution on the symbolic backend
+    side under DEFAULT_FLAGS (parity_mode=PRIMARY → polymorphic reducer
+    is authoritative).
+    """
+
+    def test_unwired_road_contact_emits_no_stiffness_contribution(self):
+        """A wheel with no road_contact_port wiring is just a Mass —
+        contribute_stiffness must be empty so the polymorphic K matrix
+        sees no spurious tire branch."""
+        w = Wheel("w", mass=40.0,
+                   contact_stiffness=180000.0, contact_damping=500.0)
+        contribs = w.contribute_stiffness(node_index={"some_other_node": 0})
+        self.assertEqual(contribs, [])
+
+    def test_unwired_road_contact_emits_no_damping_contribution(self):
+        w = Wheel("w", mass=40.0,
+                   contact_stiffness=180000.0, contact_damping=500.0)
+        contribs = w.contribute_damping(node_index={"some_other_node": 0})
+        self.assertEqual(contribs, [])
+
+    def test_transducer_wheel_emits_no_polymorphic_contributions(self):
+        """Transducer (mass=0) wheels have no DOF and don't enter the
+        K/C accumulation path. Faz 4j will revisit when the algebraic-
+        passthrough story is in place."""
+        w = Wheel("w", mass=0.0)
+        w.port("road_contact_port").connect_to("road_node")
+        self.assertEqual(
+            w.contribute_stiffness(node_index={"road_node": 0}), [],
+        )
+        self.assertEqual(
+            w.contribute_damping(node_index={"road_node": 0}), [],
+        )
+
+    def test_disable_contact_force_flag_suppresses_contributions(self):
+        """The disable_contact_force tuning flag short-circuits both
+        contribute_stiffness and contribute_damping — useful when the
+        user wants to isolate suspension dynamics from tire dynamics."""
+        w = Wheel("w", mass=40.0,
+                   contact_stiffness=180000.0, contact_damping=500.0,
+                   disable_contact_force=True)
+        w.port("port_a").connect_to("wheel_node")
+        w.port("road_contact_port").connect_to("road_node")
+        node_index = {"wheel_node": 0, "road_node": 1}
+        self.assertEqual(w.contribute_stiffness(node_index), [])
+        self.assertEqual(w.contribute_damping(node_index), [])
+
+    def test_atomic_node_road_port_emits_nothing(self):
+        """If road_contact_port lives on a node that no other component
+        references (a stranded atomic node), the contact branch has no
+        physical path and contributes nothing. CanvasCompiler may
+        allocate such atomic nodes for required=False ports that the
+        canvas doesn't wire — we treat them as effectively unwired at
+        the polymorphic-API layer."""
+        w = Wheel("w", mass=40.0,
+                   contact_stiffness=180000.0, contact_damping=500.0)
+        w.port("port_a").connect_to("wheel_node")
+        w.port("road_contact_port").connect_to("orphan_node")
+        # node_index does not include "orphan_node" → j is None → empty.
+        node_index = {"wheel_node": 0}
+        self.assertEqual(w.contribute_stiffness(node_index), [])
+        self.assertEqual(w.contribute_damping(node_index), [])
+
+    def test_wired_wheel_emits_full_4_entry_stiffness_pattern(self):
+        """The wired case must mirror Spring's 4-entry graph-Laplacian
+        pattern: K[i,i]+=k, K[j,j]+=k, K[i,j]-=k, K[j,i]-=k. Both i and
+        j are active DOFs here so all four entries appear."""
+        w = Wheel("w", mass=40.0,
+                   contact_stiffness=180000.0, contact_damping=500.0)
+        w.port("port_a").connect_to("wheel_node")
+        w.port("road_contact_port").connect_to("other_node")
+        node_index = {"wheel_node": 0, "other_node": 1}
+        contribs = w.contribute_stiffness(node_index)
+        self.assertEqual(len(contribs), 4)
+        positions = {(c.row, c.col) for c in contribs}
+        self.assertEqual(positions, {(0, 0), (1, 1), (0, 1), (1, 0)})
+        signs = {(c.row, c.col): str(c.value) for c in contribs}
+        # Diagonals positive, off-diagonals negated.
+        self.assertNotIn("-", signs[(0, 0)])
+        self.assertNotIn("-", signs[(1, 1)])
+        self.assertIn("-", signs[(0, 1)])
+        self.assertIn("-", signs[(1, 0)])
+
+    def test_wired_wheel_with_displacement_source_skips_jj_diagonal(self):
+        """When road_contact_port maps to a displacement-source node
+        (negative sentinel in extended_index), j < 0 — the j,j diagonal
+        and the j,i symmetric off-diagonal are skipped. This mirrors
+        Spring's behavior when port_b lives on a displacement source
+        (e.g. Spring → road in a tire_stiffness configuration)."""
+        w = Wheel("w", mass=40.0,
+                   contact_stiffness=180000.0, contact_damping=500.0)
+        w.port("port_a").connect_to("wheel_node")
+        w.port("road_contact_port").connect_to("road_node")
+        # Negative sentinel: extended_index encodes road_node as a
+        # displacement-source column.
+        extended_index = {"wheel_node": 0, "road_node": -1}
+        contribs = w.contribute_stiffness(extended_index)
+        # Expected: i,i (active diagonal) + i,j (off-diagonal, j<0
+        # routes to B-matrix in the reducer).
+        self.assertEqual(len(contribs), 2)
+        positions = {(c.row, c.col) for c in contribs}
+        self.assertEqual(positions, {(0, 0), (0, -1)})
+
+
+class TestWheelInPolymorphicReducer(unittest.TestCase):
+    """End-to-end: PolymorphicDAEReducer must produce K/C matrices that
+    include Wheel's contact_stiffness/contact_damping when the wheel's
+    road_contact_port is wired up. Without the 4f-1.5 contributions
+    these matrices were missing the tire branch entirely."""
+
+    def _build_quarter_car_via_road_contact_port(self) -> SystemGraph:
+        """A quarter-car using Wheel.road_contact_port instead of a
+        tire_stiffness Spring."""
+        g = SystemGraph()
+        g.add_component(Mass("body_mass", mass=300.0))
+        g.add_component(Wheel("wheel_mass", mass=40.0,
+                               contact_stiffness=180000.0,
+                               contact_damping=0.0))
+        g.add_component(Spring("susp_s", stiffness=15000.0))
+        g.add_component(Damper("susp_d", damping=1200.0))
+        g.add_component(MechanicalGround("ground"))
+        g.add_component(RandomRoad(
+            "road_source", amplitude=0.03, roughness=0.35,
+            seed=7, vehicle_speed=6.0, dt=0.01, duration=2.0,
+        ))
+        g.connect("body_mass.port_a", "susp_s.port_a")
+        g.connect("body_mass.port_a", "susp_d.port_a")
+        g.connect("susp_s.port_b", "wheel_mass.port_a")
+        g.connect("susp_d.port_b", "wheel_mass.port_a")
+        g.connect("wheel_mass.road_contact_port", "road_source.port")
+        g.connect("body_mass.reference_port", "ground.port")
+        g.connect("wheel_mass.reference_port", "ground.port")
+        g.connect("road_source.reference_port", "ground.port")
+        return g
+
+    def test_polymorphic_reducer_picks_up_contact_stiffness(self):
+        """The headline gap-fix test: PolymorphicDAEReducer with a
+        Wheel whose road_contact_port is wired must produce the same
+        K[wheel,wheel]=195000 (susp 15000 + contact 180000) that the
+        legacy DAEReducer does. Pre-4f-1.5 this came out as 15000."""
+        from app.core.symbolic.polymorphic_dae_reducer import (
+            PolymorphicDAEReducer,
+        )
+        graph = self._build_quarter_car_via_road_contact_port()
+        sym = EquationBuilder().build(graph)
+        red = PolymorphicDAEReducer().reduce(graph, sym)
+        K = sympy.Matrix(red.stiffness_matrix)
+        # K is 2x2 (body, wheel). K[1,1] is the wheel diagonal.
+        self.assertEqual(float(K[1, 1]), 195000.0)
+
+    def test_legacy_and_polymorphic_reducer_agree_on_k(self):
+        """Cross-reducer parity: the dae_reducer Wheel branch (4f-1)
+        and the polymorphic Wheel.contribute_stiffness (4f-1.5) must
+        produce identical K matrices for the same graph. This is what
+        the ReducerParityHarness needs in order to keep working under
+        DEFAULT_FLAGS=parity_mode=PRIMARY."""
+        from app.core.symbolic.polymorphic_dae_reducer import (
+            PolymorphicDAEReducer,
+        )
+        graph = self._build_quarter_car_via_road_contact_port()
+        sym = EquationBuilder().build(graph)
+        legacy_red = DAEReducer().reduce(graph, sym)
+        poly_red = PolymorphicDAEReducer().reduce(graph, sym)
+        self.assertEqual(
+            sympy.Matrix(legacy_red.stiffness_matrix),
+            sympy.Matrix(poly_red.stiffness_matrix),
+        )
+
+    def test_legacy_and_polymorphic_reducer_agree_on_c(self):
+        """Same parity check for the damping matrix: a positive
+        contact_damping must show up in both reducers' C matrices."""
+        from app.core.symbolic.polymorphic_dae_reducer import (
+            PolymorphicDAEReducer,
+        )
+        graph = self._build_quarter_car_via_road_contact_port()
+        # Override default contact_damping=0 with a positive value to
+        # actually exercise the C-matrix branch.
+        graph.components["wheel_mass"].parameters["contact_damping"] = 250.0
+        sym = EquationBuilder().build(graph)
+        legacy_red = DAEReducer().reduce(graph, sym)
+        poly_red = PolymorphicDAEReducer().reduce(graph, sym)
+        self.assertEqual(
+            sympy.Matrix(legacy_red.damping_matrix),
+            sympy.Matrix(poly_red.damping_matrix),
+        )
+
+    def test_legacy_and_polymorphic_reducer_agree_on_b(self):
+        """The road-displacement coupling lives in the input matrix
+        (B). For a wired Wheel.road_contact_port the polymorphic
+        reducer routes K[i,j] (j<0 sentinel) into B; the legacy reducer
+        does the same via _accumulate_branch's source_node_to_input
+        path. Both must produce the same B."""
+        from app.core.symbolic.polymorphic_dae_reducer import (
+            PolymorphicDAEReducer,
+        )
+        graph = self._build_quarter_car_via_road_contact_port()
+        sym = EquationBuilder().build(graph)
+        legacy_red = DAEReducer().reduce(graph, sym)
+        poly_red = PolymorphicDAEReducer().reduce(graph, sym)
+        self.assertEqual(
+            sympy.Matrix(legacy_red.input_matrix),
+            sympy.Matrix(poly_red.input_matrix),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

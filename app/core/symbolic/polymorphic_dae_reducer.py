@@ -291,6 +291,13 @@ class PolymorphicDAEReducer:
 
         Convention used in contribute_*: ``sympy.Symbol(f"m_{comp.id}")`` for mass,
         ``k_{comp.id}`` for stiffness, ``d_{comp.id}`` for damping.
+
+        Faz 4f-1.5 — Wheel.contribute_stiffness/damping use the disambiguated
+        prefixes ``k_contact_{cid}`` and ``c_contact_{cid}`` so that a Wheel
+        named ``wheel_mass`` doesn't collide with a Spring named
+        ``wheel_mass`` (both would otherwise reach for ``k_wheel_mass``).
+        We map them from the wheel's contact_stiffness/contact_damping
+        parameters here.
         """
         subs: dict = {}
         for comp in components:
@@ -302,6 +309,11 @@ class PolymorphicDAEReducer:
                 subs[sympy.Symbol(f"k_{cid}")] = float(params["stiffness"])
             if "damping" in params:
                 subs[sympy.Symbol(f"d_{cid}")] = float(params["damping"])
+            # Faz 4f-1.5 — Wheel-specific contact parameters
+            if "contact_stiffness" in params:
+                subs[sympy.Symbol(f"k_contact_{cid}")] = float(params["contact_stiffness"])
+            if "contact_damping" in params:
+                subs[sympy.Symbol(f"c_contact_{cid}")] = float(params["contact_damping"])
         return subs
 
     # ------------------------------------------------------------------
