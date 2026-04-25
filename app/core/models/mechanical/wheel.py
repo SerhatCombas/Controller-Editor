@@ -192,25 +192,82 @@ class Wheel(BaseComponent):
         """
         return float(self.parameters["mass"]) == 0.0
 
+    def _has_road_contact(self) -> bool:
+        """Whether the road_contact_port is wired to a node.
+
+        When True, the wheel additionally tracks a relative-displacement
+        state x_rel_<id>_road (mass>0 path) and supplies a contact-force
+        law. When False, the wheel behaves like a plain inertial Mass.
+        """
+        return self.port("road_contact_port").node_id is not None
+
     def get_states(self) -> list[str]:
         if self._is_transducer():
             return []
-        return [f"x_{self.id}", f"v_{self.id}"]
+        # Mass>0: always two absolute-mechanical states (position + velocity).
+        states = [f"x_{self.id}", f"v_{self.id}"]
+        # Faz 4f-1 — When road_contact_port is wired up, the wheel also owns
+        # a relative-displacement integrator x_rel_<id>_road tracking the
+        # road-relative displacement. This is the same pattern Spring uses
+        # (x_rel_<id>) and is the mechanism by which the contact stiffness
+        # contribution actually lands in the reduced K matrix: a relative
+        # state lets the reducer recognize "this DoF stores potential energy
+        # and the road port is its other side".
+        if self._has_road_contact():
+            states.append(f"x_rel_{self.id}_road")
+        return states
 
     def constitutive_equations(self) -> list[str]:
         if self._is_transducer():
             # Transducer mode: state-less algebraic passthrough.
-            # Faz 4f (Mode A) will populate the algebraic relation between
+            # Faz 4f-2 (mass=0) will populate the algebraic relation between
             # road_contact_port and port_a here. Until then we return [],
             # which keeps the behavior outside the (still pipeline-pending)
             # transducer path unchanged.
             return []
         m = self.parameters["mass"]
-        return [
+        # Mass>0 path. Two cases below: with vs without an active road
+        # contact. The without-road-contact branch is bit-for-bit identical
+        # to the pre-4f-1 implementation so the legacy quarter-car template
+        # (tire_stiffness Spring still in place) stays at perfect parity.
+        equations = [
             f"d/dt x_{self.id} = v_{self.id}",
             f"v_{self.id} = v_{self.id}_a - v_{self.id}_ref",
-            f"{m} * d/dt v_{self.id} = f_{self.id}_a - f_{self.id}_ref",
         ]
+        if self._has_road_contact():
+            # Faz 4f-1 — Active road contact (Mode A: kinematic_follow +
+            # linear elastic). The wheel takes on the additional role of a
+            # relative-displacement integrator between port_a and the road.
+            #
+            # State 1: x_<id>            (absolute wheel position)
+            # State 2: v_<id>            (absolute wheel velocity)
+            # State 3: x_rel_<id>_road   (road-relative displacement)
+            #
+            # The relative state's derivative is the velocity difference
+            # across the contact port (mirrors how Spring tracks port_a
+            # vs port_b). x_rel grows positive when the road outpaces the
+            # wheel upward (road rising faster than wheel rises) — the
+            # tire compresses, contact force on the wheel goes positive.
+            #
+            # Newton: m*dv/dt = f_a - f_ref + f_road
+            # Contact law (Mode A linear): f_road = k*x_rel + c*(v_road - v)
+            # Mode B (Faz 4g) will wrap the contact-law RHS in max(0, ...)
+            # for one-sided contact (lift-off).
+            k = self.parameters["contact_stiffness"]
+            c = self.parameters["contact_damping"]
+            equations.extend([
+                f"d/dt x_rel_{self.id}_road = v_{self.id}_road - v_{self.id}",
+                f"{m} * d/dt v_{self.id} = "
+                f"f_{self.id}_a - f_{self.id}_ref + f_{self.id}_road",
+                f"f_{self.id}_road = "
+                f"{k} * x_rel_{self.id}_road "
+                f"+ {c} * (v_{self.id}_road - v_{self.id})",
+            ])
+        else:
+            equations.append(
+                f"{m} * d/dt v_{self.id} = f_{self.id}_a - f_{self.id}_ref"
+            )
+        return equations
 
     # ------------------------------------------------------------------
     # Wave 1 polymorphic interface
