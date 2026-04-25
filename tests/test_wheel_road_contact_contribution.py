@@ -266,5 +266,174 @@ class TestQuarterCarTopologyParity(unittest.TestCase):
         )
 
 
+class TestWheelContactModeBranching(unittest.TestCase):
+    """Faz 4g — Wheel.constitutive_equations branches on contact_mode.
+
+    Mode A (kinematic_follow, default): linear elastic contact law
+        f_road = k * x_rel + c * (v_road - v)
+    Mode B (dynamic_contact): one-sided contact (lift-off) wraps the
+    same RHS in max(0, ...):
+        f_road = max(0, k * x_rel + c * (v_road - v))
+
+    Mode B is the non-linear path. The dae_reducer's K-matrix branch
+    still adds contact_stiffness to the linear K because it reads
+    parameters directly, not the constitutive equation — this is the
+    "silent linearization" Faz 4h will warn about on the symbolic path.
+    """
+
+    def test_default_contact_mode_is_kinematic_follow(self):
+        """Existing users that never set contact_mode get the legacy
+        Mode A behavior — keeps all pre-4g tests bit-for-bit unaffected."""
+        w = Wheel("w", mass=40.0)
+        self.assertEqual(w.parameters["contact_mode"], "kinematic_follow")
+
+    def test_mode_a_contact_law_is_linear(self):
+        w = Wheel("w", mass=40.0,
+                   contact_stiffness=180000.0, contact_damping=500.0,
+                   contact_mode="kinematic_follow")
+        w.port("road_contact_port").connect_to("road_node")
+        eqs = w.constitutive_equations()
+        # Last equation should be the contact law without max(0, ...)
+        self.assertEqual(
+            eqs[-1],
+            "f_w_road = 180000.0 * x_rel_w_road + 500.0 * (v_w_road - v_w)",
+        )
+
+    def test_mode_b_contact_law_wraps_rhs_in_max_zero(self):
+        w = Wheel("w", mass=40.0,
+                   contact_stiffness=180000.0, contact_damping=500.0,
+                   contact_mode="dynamic_contact")
+        w.port("road_contact_port").connect_to("road_node")
+        eqs = w.constitutive_equations()
+        self.assertEqual(
+            eqs[-1],
+            "f_w_road = max(0, 180000.0 * x_rel_w_road + 500.0 * (v_w_road - v_w))",
+        )
+
+    def test_mode_b_does_not_change_first_four_equations(self):
+        """Mode B only swaps the contact-force law. The position/velocity
+        kinematics, the relative-displacement integrator, and Newton's
+        law are untouched (only the f_road symbol gets wrapped)."""
+        w_a = Wheel("w", mass=40.0,
+                     contact_stiffness=180000.0, contact_damping=500.0,
+                     contact_mode="kinematic_follow")
+        w_a.port("road_contact_port").connect_to("road_node")
+        w_b = Wheel("w", mass=40.0,
+                     contact_stiffness=180000.0, contact_damping=500.0,
+                     contact_mode="dynamic_contact")
+        w_b.port("road_contact_port").connect_to("road_node")
+        eqs_a = w_a.constitutive_equations()
+        eqs_b = w_b.constitutive_equations()
+        # The first 4 equations (kinematics + relative integrator + Newton)
+        # are identical between modes — only the last (contact-force law)
+        # differs.
+        self.assertEqual(eqs_a[:-1], eqs_b[:-1])
+        self.assertNotEqual(eqs_a[-1], eqs_b[-1])
+
+    def test_mode_b_with_unconnected_road_port_falls_back_to_mass_only(self):
+        """Setting contact_mode='dynamic_contact' on a free wheel (no
+        road_contact_port wiring) does not invent a contact-force law
+        out of nowhere — the wheel is then just a Mass with no road
+        coupling, and the legacy pre-4f-1 equation set is emitted."""
+        w = Wheel("w", mass=40.0, contact_mode="dynamic_contact")
+        eqs = w.constitutive_equations()
+        self.assertEqual(eqs, [
+            "d/dt x_w = v_w",
+            "v_w = v_w_a - v_w_ref",
+            "40.0 * d/dt v_w = f_w_a - f_w_ref",
+        ])
+
+    def test_mode_b_with_transducer_wheel_stays_empty(self):
+        """A transducer wheel (mass=0) returns no equations regardless
+        of contact_mode — Faz 4f-2 will populate that path. Mode B
+        wrapping must not leak into the transducer branch."""
+        w = Wheel("w", mass=0.0, contact_mode="dynamic_contact")
+        w.port("road_contact_port").connect_to("road_node")
+        self.assertEqual(w.constitutive_equations(), [])
+        self.assertEqual(w.get_states(), [])
+
+
+class TestModeBLinearizationInReducer(unittest.TestCase):
+    """The reducer's string-based Wheel branch reads
+    contact_stiffness/contact_damping straight from parameters and
+    does NOT inspect the constitutive equation. This means a Mode B
+    quarter-car silently linearizes to its always-in-contact form
+    when reduced to state-space. This test pins that behavior down so
+    Faz 4h's warning machinery has a stable target to detect against,
+    and so any future change to the linearization story is loud."""
+
+    def _build_mode_graph(self, mode: str) -> SystemGraph:
+        g = SystemGraph()
+        g.add_component(Mass("body_mass", mass=300.0))
+        g.add_component(Wheel("wheel_mass", mass=40.0,
+                               contact_stiffness=180000.0,
+                               contact_damping=0.0,
+                               contact_mode=mode))
+        g.add_component(Spring("susp", stiffness=15000.0))
+        g.add_component(Damper("susp_d", damping=1200.0))
+        g.add_component(MechanicalGround("ground"))
+        g.add_component(RandomRoad(
+            "road_source", amplitude=0.03, roughness=0.35,
+            seed=7, vehicle_speed=6.0, dt=0.01, duration=2.0,
+        ))
+        g.connect("body_mass.port_a", "susp.port_a")
+        g.connect("body_mass.port_a", "susp_d.port_a")
+        g.connect("susp.port_b", "wheel_mass.port_a")
+        g.connect("susp_d.port_b", "wheel_mass.port_a")
+        g.connect("wheel_mass.road_contact_port", "road_source.port")
+        g.connect("body_mass.reference_port", "ground.port")
+        g.connect("wheel_mass.reference_port", "ground.port")
+        g.connect("road_source.reference_port", "ground.port")
+        return g
+
+    def test_mode_b_quarter_car_k_matrix_matches_mode_a(self):
+        """Replacing kinematic_follow with dynamic_contact in an
+        otherwise identical quarter-car must produce the same reduced
+        K matrix — the max(0, ...) clamp is invisible to the linear
+        reducer."""
+        red_a = _reduce(self._build_mode_graph("kinematic_follow"))
+        red_b = _reduce(self._build_mode_graph("dynamic_contact"))
+        self.assertEqual(
+            sympy.Matrix(red_a.stiffness_matrix),
+            sympy.Matrix(red_b.stiffness_matrix),
+        )
+        # Damping should match too (both modes share the linear part).
+        self.assertEqual(
+            sympy.Matrix(red_a.damping_matrix),
+            sympy.Matrix(red_b.damping_matrix),
+        )
+
+    def test_mode_b_emits_max_zero_in_constitutive_equations(self):
+        """Numerical backends consume the constitutive_equations text
+        directly; the max(0, ...) clamp must survive into the symbolic
+        system's equation list (even if the linear reducer ignores it)."""
+        g = SystemGraph()
+        g.add_component(Mass("body_mass", mass=300.0))
+        g.add_component(Wheel("wheel_mass", mass=40.0,
+                               contact_stiffness=180000.0,
+                               contact_damping=0.0,
+                               contact_mode="dynamic_contact"))
+        g.add_component(Spring("susp", stiffness=15000.0))
+        g.add_component(MechanicalGround("ground"))
+        g.add_component(RandomRoad(
+            "road_source", amplitude=0.03, roughness=0.35,
+            seed=7, vehicle_speed=6.0, dt=0.01, duration=2.0,
+        ))
+        g.connect("body_mass.port_a", "susp.port_a")
+        g.connect("susp.port_b", "wheel_mass.port_a")
+        g.connect("wheel_mass.road_contact_port", "road_source.port")
+        g.connect("body_mass.reference_port", "ground.port")
+        g.connect("wheel_mass.reference_port", "ground.port")
+        g.connect("road_source.reference_port", "ground.port")
+
+        builder = EquationBuilder()
+        sym = builder.build(g)
+        contact_law = next(
+            eq for eq in sym.all_equations
+            if "f_wheel_mass_road = " in eq and "max" in eq
+        )
+        self.assertIn("max(0,", contact_law)
+
+
 if __name__ == "__main__":
     unittest.main()

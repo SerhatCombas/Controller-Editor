@@ -61,8 +61,16 @@ class Wheel(BaseComponent):
         the legacy quarter-car template will explicitly pass 180000.0/0.0
         in Faz 4e to preserve numerical parity with the deprecated
         tire_stiffness Spring.
-      * contact_mode="kinematic_follow" — wheel always follows the road
-        (Mode A). Mode B (dynamic_contact, lift-off mümkün) 4g'de gelir.
+      * contact_mode="kinematic_follow" (Mode A) — wheel rigidly follows
+        the road; the contact-force law is the linear elastic
+        f_road = k*x_rel + c*(v_road - v).
+        contact_mode="dynamic_contact" (Mode B, Faz 4g) — same RHS but
+        clamped to non-negative via max(0, ...), so the tire can leave
+        the ground when the rebound force would otherwise pull the wheel
+        downward against the road. Mode A is the default and the only
+        one whose linearization in the symbolic state-space is exact;
+        Mode B silently linearizes to its always-in-contact form for
+        the symbolic backend (4h surfaces this with explicit warnings).
       * output_mode="displacement" — preserves the current behavior where
         the wheel feeds the rest of the system as a displacement source
         (matches the way RandomRoad currently couples through tire_stiffness).
@@ -250,18 +258,38 @@ class Wheel(BaseComponent):
             # tire compresses, contact force on the wheel goes positive.
             #
             # Newton: m*dv/dt = f_a - f_ref + f_road
-            # Contact law (Mode A linear): f_road = k*x_rel + c*(v_road - v)
-            # Mode B (Faz 4g) will wrap the contact-law RHS in max(0, ...)
-            # for one-sided contact (lift-off).
+            # Mode A (kinematic_follow): f_road = k*x_rel + c*(v_road - v)
+            # Mode B (dynamic_contact, Faz 4g): same RHS wrapped in
+            #   max(0, ...) for one-sided contact (lift-off). When the
+            #   wheel rises faster than the road, the rebound RHS would go
+            #   negative — Mode B clamps it to zero, modeling tire leaving
+            #   the ground. Mode A always sticks to the road.
+            #
+            # Mode B note for symbolic backends: the max(0, ...) wrapper
+            # makes the constitutive law non-linear, but the dae_reducer
+            # builds K/C matrices from contact_stiffness/contact_damping
+            # parameters directly (string-based Wheel branch), not from
+            # the constitutive equation. This means the reduced state-
+            # space silently linearizes Mode B around a "wheel always in
+            # contact" assumption — fine for small perturbations, but
+            # masks lift-off. Faz 4h will surface this with explicit
+            # warnings on the symbolic path.
             k = self.parameters["contact_stiffness"]
             c = self.parameters["contact_damping"]
+            contact_law_rhs = (
+                f"{k} * x_rel_{self.id}_road "
+                f"+ {c} * (v_{self.id}_road - v_{self.id})"
+            )
+            if self.parameters["contact_mode"] == "dynamic_contact":
+                contact_law = f"f_{self.id}_road = max(0, {contact_law_rhs})"
+            else:
+                # contact_mode == "kinematic_follow" (Mode A, default)
+                contact_law = f"f_{self.id}_road = {contact_law_rhs}"
             equations.extend([
                 f"d/dt x_rel_{self.id}_road = v_{self.id}_road - v_{self.id}",
                 f"{m} * d/dt v_{self.id} = "
                 f"f_{self.id}_a - f_{self.id}_ref + f_{self.id}_road",
-                f"f_{self.id}_road = "
-                f"{k} * x_rel_{self.id}_road "
-                f"+ {c} * (v_{self.id}_road - v_{self.id})",
+                contact_law,
             ])
         else:
             equations.append(
