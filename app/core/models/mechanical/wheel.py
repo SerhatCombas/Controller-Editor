@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from app.core.base.component import BaseComponent
 from app.core.base.domain import MECHANICAL_TRANSLATIONAL_DOMAIN
 from app.core.base.port import Port
 from app.core.base.variable import Variable
-from app.core.models.mechanical.mass import Mass
+
+if TYPE_CHECKING:
+    from app.core.base.contribution import MatrixContribution
+    from app.core.base.state_contribution import StateContribution
 
 
 # Allowed values for the new mode parameters. Defined as module-level
@@ -13,28 +19,30 @@ WHEEL_CONTACT_MODES = ("kinematic_follow", "dynamic_contact")
 WHEEL_OUTPUT_MODES = ("displacement", "force")
 
 
-class Wheel(Mass):
+class Wheel(BaseComponent):
     """Wheel component — mechanical inertia plus a road-contact interface.
 
-    Faz 4d-1 status:
-      * Inheritance from Mass is preserved (port_a, reference_port, mass
-        contribution, state).  Mevcut quarter-car template ve testleri
-        etkilenmez — Wheel geçmişteki gibi Mass davranışı sürdürür.
-      * Yeni `road_contact_port` eklenir (mechanical_translational domain).
-        4d-1'de bu port boşta kalır; mevcut template onu bağlamaz.
-        4e/4f/4g'de RandomRoad ile bağlanacak ve aktif rol alacak.
-      * Yeni parametreler tanımlanır (sözleşme: hepsi parameters dict'ine
-        yazılır, ama 4d-1 davranışı etkilemez — 4f/4g ve gelecek longitudinal
-        dynamics fazları bunları okuyacak):
-            contact_mode             — "kinematic_follow" (default) / "dynamic_contact"
-            contact_stiffness        — 200000.0 (otomotiv tipik) [N/m]
-            contact_damping          — 500.0    (otomotiv tipik) [N·s/m]
-            disable_contact_force    — False; True ise kontak kuvveti hesaplanmaz
-            rotational_inertia       — 1.0 [kg·m²]; 0.0 = dönme ataleti yok
-            rolling_resistance       — 0.015; 0.0 = yuvarlanma direnci yok
-            output_mode              — "displacement" (default) / "force"
+    Faz 4d-2a status:
+      * No longer inherits from Mass — Wheel is its own first-class
+        component. The mass-related logic (port_a / reference_port,
+        get_states, constitutive_equations, contribute_mass,
+        get_state_contribution) is reproduced inline so behavior is
+        bit-for-bit identical to the previous Mass-based implementation
+        when mass > 0.
+      * road_contact_port (added in 4d-1) is preserved.
+      * mass=0.0 still produces a Mass-like component with a zero
+        contribution; in Faz 4d-2b that case will switch to "transducer
+        mode" (no state, contribute_mass returns []).
 
-    Parameter philosophy:
+    Why split from Mass:
+      * Single responsibility: Wheel will gain transducer behavior
+        (force output, contact dynamics) that Mass should not carry.
+      * Future parameters (rotational_inertia, rolling_resistance) live
+        naturally on Wheel, awkwardly on Mass.
+      * Lets mass=0 mean "no inertia" cleanly in 4d-2b, without
+        spilling that semantics back into Mass.
+
+    Parameter philosophy (from 4d-1, unchanged):
       * mass is required: kullanıcı bilinçli bir karar olarak verir.
         "Kütlesiz wheel istiyorum" diyenler `mass=0.0` yazar.
       * Diğer fiziksel parametreler default değerlere sahip (kullanıcı
@@ -82,55 +90,140 @@ class Wheel(Mass):
                 f"Unknown output_mode {output_mode!r}; "
                 f"expected one of {WHEEL_OUTPUT_MODES}."
             )
-        super().__init__(component_id, mass=mass, name=name)
-        # Existing parameters from Mass: {"mass": ...}. Extend with wheel-specific.
-        # The user can disable the entire contact-force computation via
-        # disable_contact_force=True. The contact_stiffness/contact_damping
-        # values themselves are preserved (so toggling the switch off later
-        # restores the previous tuning) — Mode A/B implementations in 4f/4g
-        # will read the flag and skip the contact-force term when set.
-        # User can also set values to 0.0 directly for "no spring/damper"
-        # semantics; the flag and 0.0 produce equivalent simulations but the
-        # flag preserves intent across UI edits.
-        self.parameters["radius"] = radius
-        self.parameters["contact_mode"] = contact_mode
-        self.parameters["contact_stiffness"] = float(contact_stiffness)
-        self.parameters["contact_damping"] = float(contact_damping)
-        self.parameters["disable_contact_force"] = bool(disable_contact_force)
-        # Rotational degrees of freedom — present in the parameter dict so
-        # users of the new API can specify them today, even though Faz 4d-1
-        # does not yet wire them into any equation. Drive/brake dynamics
-        # (which would consume rotational_inertia) and longitudinal
-        # rolling-resistance forces are out of scope for the Mode A/Mode B
-        # quarter-car work; they will be activated by a future faz that
-        # introduces longitudinal vehicle dynamics. Set either to 0.0 to
-        # disable the corresponding effect when those modules ship.
-        self.parameters["rotational_inertia"] = float(rotational_inertia)
-        self.parameters["rolling_resistance"] = float(rolling_resistance)
-        self.parameters["output_mode"] = output_mode
-
-        # New port — road contact interface. Mechanical translational domain
-        # (Newtonian force/velocity), separate through/across variables so
-        # downstream pipelines can distinguish suspension-side from road-side
-        # interactions on the same wheel. The port is required=False so a
-        # Wheel instance can be constructed and used without connecting it
-        # (current template uses port_a only; Faz 4e will rewire to road_contact_port).
-        self.ports.append(
-            Port(
-                id=f"{component_id}.road_contact_port",
-                name="road_contact_port",
-                domain=MECHANICAL_TRANSLATIONAL_DOMAIN,
-                component_id=component_id,
-                across_var=Variable(
-                    name=f"v_{component_id}_road",
+        # Build the full port set in one super().__init__() call to mirror
+        # the structure that Mass built and 4d-1 extended. port_a and
+        # reference_port replicate Mass exactly (same names, variables,
+        # domain). road_contact_port is the addition from 4d-1.
+        super().__init__(
+            id=component_id,
+            name=name,
+            domain=MECHANICAL_TRANSLATIONAL_DOMAIN,
+            ports=[
+                Port(
+                    id=f"{component_id}.port_a",
+                    name="port_a",
                     domain=MECHANICAL_TRANSLATIONAL_DOMAIN,
-                    kind="across",
+                    component_id=component_id,
+                    across_var=Variable(
+                        name=f"v_{component_id}_a",
+                        domain=MECHANICAL_TRANSLATIONAL_DOMAIN,
+                        kind="across",
+                    ),
+                    through_var=Variable(
+                        name=f"f_{component_id}_a",
+                        domain=MECHANICAL_TRANSLATIONAL_DOMAIN,
+                        kind="through",
+                    ),
                 ),
-                through_var=Variable(
-                    name=f"f_{component_id}_road",
+                Port(
+                    id=f"{component_id}.reference_port",
+                    name="reference_port",
                     domain=MECHANICAL_TRANSLATIONAL_DOMAIN,
-                    kind="through",
+                    component_id=component_id,
+                    across_var=Variable(
+                        name=f"v_{component_id}_ref",
+                        domain=MECHANICAL_TRANSLATIONAL_DOMAIN,
+                        kind="across",
+                    ),
+                    through_var=Variable(
+                        name=f"f_{component_id}_ref",
+                        domain=MECHANICAL_TRANSLATIONAL_DOMAIN,
+                        kind="through",
+                    ),
                 ),
-                required=False,
-            )
+                Port(
+                    id=f"{component_id}.road_contact_port",
+                    name="road_contact_port",
+                    domain=MECHANICAL_TRANSLATIONAL_DOMAIN,
+                    component_id=component_id,
+                    across_var=Variable(
+                        name=f"v_{component_id}_road",
+                        domain=MECHANICAL_TRANSLATIONAL_DOMAIN,
+                        kind="across",
+                    ),
+                    through_var=Variable(
+                        name=f"f_{component_id}_road",
+                        domain=MECHANICAL_TRANSLATIONAL_DOMAIN,
+                        kind="through",
+                    ),
+                    required=False,
+                ),
+            ],
+            parameters={
+                "mass": mass,
+                "radius": radius,
+                "contact_mode": contact_mode,
+                "contact_stiffness": float(contact_stiffness),
+                "contact_damping": float(contact_damping),
+                "disable_contact_force": bool(disable_contact_force),
+                # Rotational degrees of freedom — stored for future longitudinal
+                # vehicle dynamics fazları; not yet wired into any equation.
+                "rotational_inertia": float(rotational_inertia),
+                "rolling_resistance": float(rolling_resistance),
+                "output_mode": output_mode,
+            },
+            initial_conditions={"x": 0.0, "v": 0.0},
         )
+
+    # ------------------------------------------------------------------
+    # Mass-equivalent dynamics — copied from Mass so simulations of the
+    # legacy quarter-car template produce identical results. 4d-2b will
+    # introduce a mass=0 short-circuit that switches to transducer mode.
+    # ------------------------------------------------------------------
+
+    def get_states(self) -> list[str]:
+        return [f"x_{self.id}", f"v_{self.id}"]
+
+    def constitutive_equations(self) -> list[str]:
+        m = self.parameters["mass"]
+        return [
+            f"d/dt x_{self.id} = v_{self.id}",
+            f"v_{self.id} = v_{self.id}_a - v_{self.id}_ref",
+            f"{m} * d/dt v_{self.id} = f_{self.id}_a - f_{self.id}_ref",
+        ]
+
+    # ------------------------------------------------------------------
+    # Wave 1 polymorphic interface
+    # ------------------------------------------------------------------
+
+    def get_state_contribution(self) -> StateContribution:
+        from app.core.base.state_contribution import StateContribution
+        return StateContribution(
+            stores_inertial_energy=True,
+            stores_potential_energy=False,
+            state_kind="inertial",
+            dof_count=1,
+            owning_port_name="port_a",
+        )
+
+    def contribute_mass(self, node_index: dict[str, int]) -> list[MatrixContribution]:
+        """Diagonal mass-matrix entry: M[i,i] += m.
+
+        Behavior is identical to the Mass implementation that Wheel
+        previously inherited from. 4d-2b will add a `mass == 0.0`
+        short-circuit returning [], which switches the wheel to
+        transducer mode (no inertial DOF contribution).
+        """
+        import sympy
+        from app.core.base.contribution import MatrixContribution
+
+        port = self.port("port_a")
+        if port.node_id is None or port.node_id not in node_index:
+            return []
+
+        i = node_index[port.node_id]
+        m_sym = sympy.Symbol(f"m_{self.id}")
+        return [
+            MatrixContribution(
+                row=i,
+                col=i,
+                value=m_sym,
+                component_id=self.id,
+                contribution_kind="mass",
+                connected_node_ids=(port.node_id,),
+                physical_meaning=(
+                    f"Inertial resistance of {self.name} (m={self.parameters['mass']} kg) at DOF {i}"
+                ),
+                equation_reference=f"M[{i},{i}] += m_{self.id}",
+            )
+        ]

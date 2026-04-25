@@ -37,12 +37,51 @@ class TestWheelBackwardCompatibility(unittest.TestCase):
         self.assertAlmostEqual(w.parameters["radius"], 0.32)
 
     def test_old_api_still_contributes_mass_state(self):
-        """Wheel contributes its DOF to the system graph (Mass inheritance intact)."""
+        """Wheel still contributes its DOF to the system graph just like before
+        (port_a / reference_port still present, behavior matches Mass)."""
         w = Wheel("wheel_mass", mass=30.0)
-        # Mass subclass should expose port_a and reference_port
         port_names = [p.name for p in w.ports]
         self.assertIn("port_a", port_names)
         self.assertIn("reference_port", port_names)
+
+    def test_wheel_no_longer_inherits_from_mass(self):
+        """Faz 4d-2a: Wheel was split off from Mass into its own first-class
+        component. isinstance(wheel, Mass) must now be False even though the
+        observable behavior is unchanged."""
+        from app.core.models.mechanical import Mass
+        from app.core.base.component import BaseComponent
+        w = Wheel("w", mass=40.0)
+        self.assertFalse(isinstance(w, Mass),
+            "Wheel should be its own class after 4d-2a split")
+        self.assertTrue(isinstance(w, BaseComponent),
+            "Wheel must still be a BaseComponent")
+
+    def test_wheel_behavior_matches_mass_for_same_mass(self):
+        """Parity check: Wheel and Mass with the same component_id and mass
+        must produce identical states, equations, and matrix contributions —
+        the split into independent classes preserved behavior bit-for-bit."""
+        from app.core.models.mechanical import Mass
+        # Same id so symbolic names line up.
+        m = Mass("x", mass=12.5)
+        w = Wheel("x", mass=12.5)
+        self.assertEqual(m.get_states(), w.get_states())
+        self.assertEqual(m.constitutive_equations(), w.constitutive_equations())
+        m_state = m.get_state_contribution()
+        w_state = w.get_state_contribution()
+        self.assertEqual(m_state.dof_count, w_state.dof_count)
+        self.assertEqual(m_state.stores_inertial_energy, w_state.stores_inertial_energy)
+        self.assertEqual(m_state.state_kind, w_state.state_kind)
+        self.assertEqual(m_state.owning_port_name, w_state.owning_port_name)
+        # Connect port_a on both and check matrix contribution structure.
+        m.port("port_a").connect_to("nx")
+        w.port("port_a").connect_to("nx")
+        m_c = m.contribute_mass({"nx": 0})
+        w_c = w.contribute_mass({"nx": 0})
+        self.assertEqual(len(m_c), len(w_c))
+        self.assertEqual(m_c[0].row, w_c[0].row)
+        self.assertEqual(m_c[0].col, w_c[0].col)
+        self.assertEqual(m_c[0].value, w_c[0].value)
+        self.assertEqual(m_c[0].contribution_kind, w_c[0].contribution_kind)
 
 
 class TestWheelRoadContactPort(unittest.TestCase):
