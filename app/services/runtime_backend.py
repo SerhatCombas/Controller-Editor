@@ -11,6 +11,11 @@ from scipy.linalg import expm
 from app.core.models.quarter_car_model import QuarterCarModel, QuarterCarParameters, QuarterCarState
 from app.core.state.feature_flags import DEFAULT_FLAGS, FeatureFlags
 from app.core.symbolic import DAEReducer, EquationBuilder, StateSpaceBuilder
+from app.core.symbolic.linearization_warnings import (
+    METADATA_KEY_LINEARIZED_MODE_B,
+    detect_linearized_mode_b_wheels,
+    emit_linearization_warning,
+)
 
 if TYPE_CHECKING:
     from app.core.graph.system_graph import SystemGraph
@@ -333,6 +338,19 @@ class SymbolicStateSpaceRuntimeBackend:
         graph.components["suspension_spring"].parameters["stiffness"] = self.parameters.suspension_spring
         graph.components["suspension_damper"].parameters["damping"] = self.parameters.suspension_damper
         graph.components["tire_stiffness"].parameters["stiffness"] = self.parameters.tire_stiffness
+        # Faz 4h — Detect Wheel(s) that will be silently linearized in the
+        # symbolic state-space (Mode B's max(0, ...) clamp is invisible to
+        # the parameter-driven K/C accumulation). Warn here and stash the
+        # trigger list on `self.metadata` so the simulation service / UI
+        # panels can surface the situation. Note: no metadata dict existed
+        # on the runtime-backend protocol before 4h — this attribute is
+        # advisory only and consumers should `getattr(..., "metadata", {})`
+        # when reading it across backend types.
+        linearized_mode_b = detect_linearized_mode_b_wheels(graph)
+        emit_linearization_warning(
+            linearized_mode_b, backend_label="SymbolicStateSpaceRuntimeBackend"
+        )
+        self.metadata = {METADATA_KEY_LINEARIZED_MODE_B: linearized_mode_b}
         symbolic = EquationBuilder().build(graph)
         reduced = DAEReducer().reduce(graph, symbolic)
         state_space = StateSpaceBuilder().build(graph, reduced, symbolic)

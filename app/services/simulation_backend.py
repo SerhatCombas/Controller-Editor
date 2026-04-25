@@ -10,6 +10,11 @@ from scipy import signal
 from app.core.models.quarter_car_model import QuarterCarModel, QuarterCarParameters
 from app.core.state.feature_flags import DEFAULT_FLAGS, FeatureFlags
 from app.core.symbolic import DAEReducer, EquationBuilder, StateSpaceBuilder
+from app.core.symbolic.linearization_warnings import (
+    METADATA_KEY_LINEARIZED_MODE_B,
+    detect_linearized_mode_b_wheels,
+    emit_linearization_warning,
+)
 from app.core.symbolic.reducer_parity_harness import ReducerParityHarness
 
 if TYPE_CHECKING:
@@ -265,6 +270,16 @@ class SymbolicStateSpaceBackend:
         output_variables: list[str] | None = None,
     ) -> BackendStateSpace:
         template = self._build_template()
+        # Faz 4h — Detect Wheel(s) with contact_mode='dynamic_contact' that
+        # will be silently linearized by the symbolic reducer (Mode B's
+        # max(0, ...) clamp is invisible to the parameter-driven K/C
+        # accumulation). Warn once per call and surface the trigger list
+        # in the response metadata so UI panels can show a "linearized"
+        # badge without re-traversing the graph themselves.
+        linearized_mode_b = detect_linearized_mode_b_wheels(template.graph)
+        emit_linearization_warning(
+            linearized_mode_b, backend_label="SymbolicStateSpaceBackend"
+        )
         symbolic = EquationBuilder().build(template.graph)
         reduced, _parity_report = self._harness.reduce(
             template.graph, symbolic, graph_id=template.id
@@ -292,6 +307,7 @@ class SymbolicStateSpaceBackend:
                 "backend_type": "symbolic",
                 "source_template": template.id,
                 "sympy_equation_count": reduced.metadata.get("sympy_equation_count", 0),
+                METADATA_KEY_LINEARIZED_MODE_B: linearized_mode_b,
             },
         )
 
