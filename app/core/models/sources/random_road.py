@@ -34,9 +34,15 @@ class RandomRoad(SignalSource):
         max_slope: float | None = None,
         min_feature_width: float = 0.0,
         wheel_radius_reference: float = 0.0,
+        generation_mode: str = "filtered_noise",
         name: str = "Random Road",
     ) -> None:
         super().__init__(component_id, name=name)
+        if generation_mode not in {"filtered_noise", "control_points"}:
+            raise ValueError(
+                f"Unknown generation_mode {generation_mode!r}; "
+                "expected 'filtered_noise' or 'control_points'."
+            )
         # Coordinate min_feature_width with wheel_radius_reference: a road
         # populated with features narrower than the contacting wheel diameter
         # produces non-physical excitation (the wheel cannot resolve sub-2R
@@ -60,6 +66,7 @@ class RandomRoad(SignalSource):
                 "min_feature_width": float(min_feature_width),
                 "wheel_radius_reference": float(wheel_radius_reference),
                 "effective_feature_width": effective_feature_width,
+                "generation_mode": generation_mode,
             }
         )
         step_count = max(int(duration / dt) + 1, 2)
@@ -68,6 +75,29 @@ class RandomRoad(SignalSource):
         self._road = self._generate_profile()
 
     def _generate_profile(self):
+        # Faz 4c — Generation algorithm switch.
+        # 'filtered_noise' (default): legacy IIR-filtered Gaussian noise.
+        # 'control_points':           PCHIP-interpolated random control points.
+        # Both algorithms feed the same Faz 4b post-processing pipeline
+        # (feature-width smoothing → slope limiting → height clamp), so
+        # max_height/max_slope/min_feature_width work identically in both modes.
+        if self.parameters["generation_mode"] == "control_points":
+            road = self._generate_control_points_profile()
+        else:
+            road = self._generate_filtered_noise_profile()
+        # Post-processing (Faz 4b) — no-op when bound parameters are at defaults.
+        road = self._apply_feature_width_smoothing(road)
+        road = self._apply_slope_limit(road)
+        road = self._apply_height_clamp(road)
+        return road
+
+    def _generate_filtered_noise_profile(self) -> list[float]:
+        """Legacy generation: IIR-filtered Gaussian noise scaled by amplitude.
+
+        Behavior is bit-for-bit identical to the pre-Faz-4c implementation when
+        the bound parameters (max_height/max_slope/min_feature_width) are also
+        at their defaults.
+        """
         sample_count = len(self._distance)
         alpha = pow(2.718281828, -self.parameters["roughness"] * self.parameters["dt"])
         if np is not None and signal is not None:
@@ -75,26 +105,111 @@ class RandomRoad(SignalSource):
             noise = rng.standard_normal(sample_count)
             road = signal.lfilter([1.0 - alpha], [1.0, -alpha], noise)
             road *= self.parameters["amplitude"]
-            road = road.tolist()
+            return road.tolist()
+        rng = random.Random(int(self.parameters["seed"]))
+        road: list[float] = []
+        filtered = 0.0
+        for _ in range(sample_count):
+            white = rng.gauss(0.0, 1.0)
+            filtered = alpha * filtered + (1.0 - alpha) * white
+            road.append(filtered * self.parameters["amplitude"])
+        return road
+
+    def _generate_control_points_profile(self) -> list[float]:
+        """Control-points generation: PCHIP-interpolate random control samples.
+
+        Why PCHIP: a piecewise cubic Hermite interpolant is monotonic between
+        knots — it does not overshoot or oscillate as a generic cubic spline
+        would.  That matches what a real road profile looks like (smooth, no
+        ringing) and keeps slope_at_distance well-behaved.
+
+        Number of control points is chosen automatically from the road length
+        and roughness (see _control_point_count). The control points themselves
+        are independent Gaussian samples scaled by amplitude — the seed and
+        amplitude semantics match filtered_noise so users can switch modes
+        without re-tuning amplitude.
+        """
+        sample_count = len(self._distance)
+        if sample_count < 2:
+            return [0.0] * sample_count
+
+        n_control = self._control_point_count()
+        last_distance = self._distance[-1]
+        if last_distance <= 0.0 or n_control < 2:
+            return [0.0] * sample_count
+
+        if np is not None:
+            rng = np.random.default_rng(int(self.parameters["seed"]))
+            control_heights = rng.standard_normal(n_control) * self.parameters["amplitude"]
+            control_heights = control_heights.tolist()
         else:
             rng = random.Random(int(self.parameters["seed"]))
-            road = []
-            filtered = 0.0
-            for _ in range(sample_count):
-                white = rng.gauss(0.0, 1.0)
-                filtered = alpha * filtered + (1.0 - alpha) * white
-                road.append(filtered * self.parameters["amplitude"])
-        # Faz 4b — Post-processing pipeline (order matters):
-        #   1) feature-width smoothing  : suppresses sub-wheel-resolution detail
-        #   2) slope limiting           : iteratively softens cliffs (|du/dx| <= max_slope)
-        #   3) height clamping          : final symmetric clip (|u(x)| <= max_height)
-        # Each stage is a no-op when its parameter is left at its default
-        # (effective_feature_width=0, max_slope=None, max_height=None), so the
-        # legacy behavior — filtered noise scaled by amplitude — is preserved.
-        road = self._apply_feature_width_smoothing(road)
-        road = self._apply_slope_limit(road)
-        road = self._apply_height_clamp(road)
+            control_heights = [
+                rng.gauss(0.0, 1.0) * self.parameters["amplitude"]
+                for _ in range(n_control)
+            ]
+
+        control_x = [
+            (i / float(n_control - 1)) * last_distance for i in range(n_control)
+        ]
+
+        try:
+            from scipy.interpolate import PchipInterpolator
+            interpolator = PchipInterpolator(control_x, control_heights)
+            road = [float(interpolator(x)) for x in self._distance]
+        except ImportError:
+            # Fallback: linear interpolation. Slope discontinuities at knots
+            # are then smoothed out by _apply_slope_limit if max_slope is set.
+            road = [self._linear_interpolate(x, control_x, control_heights)
+                    for x in self._distance]
         return road
+
+    def _control_point_count(self) -> int:
+        """Auto-pick number of control points from duration and roughness.
+
+        Heuristic: smoother road -> fewer, longer features; rougher road ->
+        more, shorter features.
+
+            typical_feature_length = 2.0 / max(roughness, 0.01)   [meters]
+            n = ceil(road_length_meters / typical_feature_length)
+
+        Bounded:
+          * lower bound 8 (need enough knots for PCHIP to be meaningful)
+          * upper bound (sample_count // 2) so each control point is backed
+            by at least 2 raw samples
+          * coordinated with effective_feature_width: spacing >= that width
+            (we never place control points closer together than the wheel
+            can resolve, otherwise post-pipeline smoothing wipes them out
+            anyway).
+        """
+        road_length = self._distance[-1]
+        roughness = max(float(self.parameters["roughness"]), 0.01)
+        typical_feature_length = 2.0 / roughness
+        raw = int(road_length / typical_feature_length) + 1
+
+        n = max(raw, 8)
+        sample_count = len(self._distance)
+        n = min(n, max(sample_count // 2, 2))
+
+        feature_width = self.parameters["effective_feature_width"]
+        if feature_width > 0.0 and road_length > 0.0:
+            max_n_for_feature_width = int(road_length / feature_width) + 1
+            n = min(n, max(max_n_for_feature_width, 2))
+
+        return max(n, 2)
+
+    @staticmethod
+    def _linear_interpolate(x: float, xs: list[float], ys: list[float]) -> float:
+        """Plain linear interpolation between sorted (xs, ys) knots."""
+        if x <= xs[0]:
+            return ys[0]
+        if x >= xs[-1]:
+            return ys[-1]
+        for i in range(1, len(xs)):
+            if x <= xs[i]:
+                ratio = (x - xs[i - 1]) / max(xs[i] - xs[i - 1], 1e-12)
+                return ys[i - 1] * (1.0 - ratio) + ys[i] * ratio
+        return ys[-1]
 
     def _apply_feature_width_smoothing(self, road: list[float]) -> list[float]:
         """Suppress features narrower than `effective_feature_width` via a
