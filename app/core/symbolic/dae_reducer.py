@@ -9,9 +9,28 @@ class DAEReducer:
 
     def reduce(self, graph: SystemGraph, symbolic_system: SymbolicSystem) -> ReducedODESystem:
         component_records = symbolic_system.metadata.get("component_records", {})
-        mass_records = [
-            record for record in component_records.values() if record["type"] in {"Mass", "Wheel"}
-        ]
+        # Faz 4d-2c — Polymorphic state-bearing classification.
+        # Old behavior: pick masses by class name (record["type"] in {"Mass",
+        # "Wheel"}). That conflates "is a Mass/Wheel" with "owns an inertial
+        # DoF", which breaks down once Wheel can be a transducer (mass=0,
+        # dof_count=0). The new path consults state_contribution.dof_count
+        # — only components that genuinely contribute a DoF are promoted to
+        # state nodes.
+        # The legacy string check is kept as a fallback for records that
+        # predate Faz 4d-2c (e.g. external callers that build their own
+        # component_records dict without the new state_contribution field).
+        # Faz 4j cleanup will remove the fallback once all callers migrate.
+        mass_records = []
+        for record in component_records.values():
+            sc = record.get("state_contribution")
+            if sc is not None:
+                # Polymorphic path: only inertial DoF owners count.
+                if sc.get("dof_count", 0) > 0 and sc.get("stores_inertial_energy", False):
+                    mass_records.append(record)
+            else:
+                # Legacy fallback: string-based class-name check.
+                if record["type"] in {"Mass", "Wheel"}:
+                    mass_records.append(record)
         state_nodes = [record["port_nodes"].get("port_a") for record in mass_records]
         state_nodes = [node_id for node_id in state_nodes if node_id is not None]
         node_order = list(dict.fromkeys(state_nodes))

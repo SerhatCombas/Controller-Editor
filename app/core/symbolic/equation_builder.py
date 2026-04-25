@@ -188,6 +188,34 @@ class EquationBuilder:
     def _build_component_records(self, graph: SystemGraph) -> dict[str, dict[str, object]]:
         records: dict[str, dict[str, object]] = {}
         for component_id, component in graph.components.items():
+            # Faz 4d-2c — Polymorphic state-contribution metadata.
+            # We snapshot get_state_contribution() into the record so downstream
+            # consumers (DAEReducer, future runtime backends) can decide whether
+            # this component owns DoFs without resorting to string checks like
+            # `record["type"] in {"Mass", "Wheel"}`. Components that override
+            # get_state_contribution() to return None (dampers, grounds, probes)
+            # are recorded with dof_count=0 and state_kind=None — they
+            # contribute no integration state.
+            try:
+                state_contribution = component.get_state_contribution()
+            except (AttributeError, NotImplementedError):
+                state_contribution = None
+            if state_contribution is None:
+                state_contribution_record: dict[str, object] = {
+                    "dof_count": 0,
+                    "state_kind": None,
+                    "stores_inertial_energy": False,
+                    "stores_potential_energy": False,
+                    "owning_port_name": None,
+                }
+            else:
+                state_contribution_record = {
+                    "dof_count": state_contribution.dof_count,
+                    "state_kind": state_contribution.state_kind,
+                    "stores_inertial_energy": state_contribution.stores_inertial_energy,
+                    "stores_potential_energy": state_contribution.stores_potential_energy,
+                    "owning_port_name": state_contribution.owning_port_name,
+                }
             records[component_id] = {
                 "id": component_id,
                 "type": component.__class__.__name__,
@@ -202,6 +230,7 @@ class EquationBuilder:
                     }
                     for port in component.ports
                 },
+                "state_contribution": state_contribution_record,
             }
         return records
 
