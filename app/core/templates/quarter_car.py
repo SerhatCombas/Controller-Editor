@@ -15,13 +15,35 @@ from app.core.templates.template_definition import TemplateDefinition
 
 
 def build_quarter_car_template() -> TemplateDefinition:
+    """Quarter-car suspension template.
+
+    Faz 4j-1 -- tire_stiffness Spring removed. The tire-road coupling
+    now flows through Wheel.road_contact_port directly, with the wheel's
+    own contact_stiffness/contact_damping playing the role the deleted
+    Spring used to play. Wheel.contact_stiffness=180000.0 and
+    contact_damping=0.0 are explicitly set so reduced ODE matrices stay
+    bit-for-bit identical to the pre-4j-1 topology (Faz 4f-1's legacy
+    DAEReducer Wheel branch and Faz 4f-1.5's polymorphic
+    Wheel.contribute_stiffness / contribute_damping are what make the
+    two topologies equivalent).
+
+    QuarterCarParameters.tire_stiffness still exists as the user-facing
+    knob and is now routed to wheel_mass.contact_stiffness in the
+    symbolic backends -- no breaking API change for users.
+    """
     graph = SystemGraph()
 
     body_mass = graph.add_component(Mass("body_mass", mass=300.0, name="Body Mass"))
-    wheel_mass = graph.add_component(Wheel("wheel_mass", mass=40.0, name="Wheel / Unsprung Mass"))
+    # Faz 4j-1 -- Wheel now carries tire-contact dynamics directly via its
+    # road_contact_port; explicit contact_stiffness/contact_damping match
+    # the values the removed tire_stiffness Spring used (180000.0 / 0.0)
+    # so simulation outputs stay bit-for-bit identical.
+    wheel_mass = graph.add_component(Wheel(
+        "wheel_mass", mass=40.0, name="Wheel / Unsprung Mass",
+        contact_stiffness=180000.0, contact_damping=0.0,
+    ))
     suspension_spring = graph.add_component(Spring("suspension_spring", stiffness=15000.0))
     suspension_damper = graph.add_component(Damper("suspension_damper", damping=1200.0))
-    tire_stiffness = graph.add_component(Spring("tire_stiffness", stiffness=180000.0, name="Tire Stiffness"))
     road = graph.add_component(
         RandomRoad(
             "road_source",
@@ -47,8 +69,9 @@ def build_quarter_car_template() -> TemplateDefinition:
     graph.connect(body_mass.port("port_a").id, suspension_damper.port("port_a").id, label="body_to_damper")
     graph.connect(wheel_mass.port("port_a").id, suspension_spring.port("port_b").id, label="wheel_to_spring")
     graph.connect(wheel_mass.port("port_a").id, suspension_damper.port("port_b").id, label="wheel_to_damper")
-    graph.connect(wheel_mass.port("port_a").id, tire_stiffness.port("port_a").id, label="wheel_to_tire")
-    graph.connect(tire_stiffness.port("port_b").id, road.port("port").id, label="tire_to_road")
+    # Faz 4j-1 -- Wheel.road_contact_port replaces the tire_stiffness Spring
+    # branch (was: wheel.port_a -> tire_stiffness.port_a -> tire_stiffness.port_b -> road.port).
+    graph.connect(wheel_mass.port("road_contact_port").id, road.port("port").id, label="wheel_to_road")
     graph.connect(body_mass.port("reference_port").id, ground.port("port").id, label="body_reference")
     graph.connect(wheel_mass.port("reference_port").id, ground.port("port").id, label="wheel_reference")
     graph.connect(road.port("reference_port").id, ground.port("port").id, label="road_reference")
@@ -114,8 +137,10 @@ def build_quarter_car_template() -> TemplateDefinition:
             "suspension_damper": (320.0, 190.0),
             "body_force": (70.0, 120.0),
             "wheel_mass": (250.0, 330.0),
-            "tire_stiffness": (250.0, 455.0),
-            "road_source": (120.0, 455.0),
+            # Faz 4j-1 -- tire_stiffness coordinate removed; the wheel's
+            # road_contact_port is rendered as part of the wheel itself,
+            # not a separate component.
+            "road_source": (250.0, 455.0),
             "ground": (250.0, 545.0),
         },
         warnings=[

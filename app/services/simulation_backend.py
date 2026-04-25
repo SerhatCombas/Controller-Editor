@@ -397,7 +397,12 @@ class SymbolicStateSpaceBackend:
         graph.components["wheel_mass"].parameters["mass"] = self.parameters.wheel_mass
         graph.components["suspension_spring"].parameters["stiffness"] = self.parameters.suspension_spring
         graph.components["suspension_damper"].parameters["damping"] = self.parameters.suspension_damper
-        graph.components["tire_stiffness"].parameters["stiffness"] = self.parameters.tire_stiffness
+        # Faz 4j-1 -- tire_stiffness Spring removed from template;
+        # parameters.tire_stiffness now drives wheel_mass.contact_stiffness.
+        # The dae_reducer Wheel branch (4f-1) and the polymorphic
+        # Wheel.contribute_stiffness (4f-1.5) accumulate this into K
+        # exactly the way the deleted tire_stiffness Spring used to.
+        graph.components["wheel_mass"].parameters["contact_stiffness"] = self.parameters.tire_stiffness
         return _ResolvedTemplate(graph=graph, id=graph_id)
 
     def _input_index(self, input_variables: list[str], input_channel: str) -> int:

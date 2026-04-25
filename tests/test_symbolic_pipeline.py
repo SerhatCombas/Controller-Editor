@@ -98,8 +98,8 @@ class SymbolicPipelineTests(unittest.TestCase):
     def test_quarter_car_pipeline_shapes_and_outputs(self):
         _, symbolic, reduced, state_space = self.build_pipeline(build_quarter_car_template)
 
-        self.assertEqual(len(symbolic.all_equations), 34)
-        self.assertEqual(len(symbolic.algebraic_constraints), 15)
+        self.assertEqual(len(symbolic.all_equations), 32)
+        self.assertEqual(len(symbolic.algebraic_constraints), 14)
         self.assertEqual(
             reduced.state_variables,
             ["x_body_mass", "x_wheel_mass", "v_body_mass", "v_wheel_mass"],
@@ -168,7 +168,11 @@ class SymbolicPipelineTests(unittest.TestCase):
     def test_quarter_car_tire_stiffness_changes_wheel_mode_strength(self):
         template_soft = build_quarter_car_template()
         template_stiff = build_quarter_car_template()
-        template_stiff.graph.components["tire_stiffness"].parameters["stiffness"] = 360000.0
+        # Faz 4j-1 -- tire_stiffness Spring removed; tire stiffness now
+        # lives on the Wheel as contact_stiffness. The semantics of this
+        # test (a stiffer tire raises the wheel-mode A-matrix entry) are
+        # unchanged.
+        template_stiff.graph.components["wheel_mass"].parameters["contact_stiffness"] = 360000.0
 
         symbolic_soft = EquationBuilder().build(template_soft.graph)
         reduced_soft = DAEReducer().reduce(template_soft.graph, symbolic_soft)
