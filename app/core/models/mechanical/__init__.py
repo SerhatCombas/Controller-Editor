@@ -1,9 +1,6 @@
-"""Mechanical translational component library for the future graph engine."""
-
-from app.core.models.mechanical.damper import Damper
-from app.core.models.mechanical.ground import MechanicalGround
-from app.core.models.mechanical.mass import Mass
-from app.core.models.mechanical.spring import Spring
-from app.core.models.mechanical.wheel import Wheel
-
-__all__ = ["Damper", "Mass", "MechanicalGround", "Spring", "Wheel"]
+# app/core/models/mechanical/__init__.py — SHIM
+from src.shared.components.translational.mass import Mass  # noqa: F401
+from src.shared.components.translational.spring import Spring  # noqa: F401
+from src.shared.components.translational.damper import Damper  # noqa: F401
+from src.shared.components.translational.ground import MechanicalGround  # noqa: F401
+from src.shared.components.translational.wheel import Wheel  # noqa: F401

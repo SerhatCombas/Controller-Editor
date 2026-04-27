@@ -1,17 +1,6 @@
-"""Electrical domain components — MSL-derived, sympy-based."""
-
-from app.core.models.electrical.ground import ElectricalGround
-from app.core.models.electrical.resistor import Resistor
-from app.core.models.electrical.capacitor import Capacitor
-from app.core.models.electrical.inductor import Inductor
-from app.core.models.electrical.source import IdealSource, VoltageSource, CurrentSource
-
-__all__ = [
-    "ElectricalGround",
-    "Resistor",
-    "Capacitor",
-    "Inductor",
-    "IdealSource",
-    "VoltageSource",
-    "CurrentSource",
-]
+# app/core/models/electrical/__init__.py — SHIM
+from src.shared.components.electrical.resistor import Resistor  # noqa: F401
+from src.shared.components.electrical.capacitor import Capacitor  # noqa: F401
+from src.shared.components.electrical.inductor import Inductor  # noqa: F401
+from src.shared.components.electrical.ground import ElectricalGround  # noqa: F401
+from src.shared.components.electrical.source import IdealSource, VoltageSource, CurrentSource  # noqa: F401

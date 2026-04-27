@@ -1,19 +1,3 @@
-"""Canvas package for draggable system components and connections."""
-
-from app.ui.canvas.component_system import (
-    CanvasVisualComponent,
-    ComponentDomain,
-    ComponentRenderer,
-    ComponentVisualCategory,
-    ComponentVisualSpec,
-    Orientation,
-)
-
-__all__ = [
-    "CanvasVisualComponent",
-    "ComponentDomain",
-    "ComponentRenderer",
-    "ComponentVisualCategory",
-    "ComponentVisualSpec",
-    "Orientation",
-]
+# app/ui/canvas/__init__.py — SHIM
+# Note: component_system requires PySide6, avoid eager import.
+# Use direct imports: from app.ui.canvas.component_system import ...

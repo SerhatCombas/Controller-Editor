@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Literal
-
-from app.core.base.domain import Domain
-
-
-@dataclass(frozen=True, slots=True)
-class Variable:
-    name: str
-    domain: Domain
-    kind: Literal["across", "through", "state", "parameter", "input", "output"]
+# app/core/base/variable.py — SHIM (taşındı: src/shared/types/variable.py)
+# Bu dosya geçici uyumluluk için var, Aşama F'de silinecek.
+from src.shared.types.variable import *  # noqa: F401, F403

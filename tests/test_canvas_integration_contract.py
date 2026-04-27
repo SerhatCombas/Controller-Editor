@@ -47,11 +47,11 @@ def _import_visual_contract():
     import sys
     from pathlib import Path
 
-    mod_name = "app.ui.canvas.visual_contract"
+    mod_name = "src.features.SystemModelingModule.canvas.visual_contract"
     if mod_name in sys.modules:
         return sys.modules[mod_name]
 
-    mod_path = Path(__file__).resolve().parent.parent / "app" / "ui" / "canvas" / "visual_contract.py"
+    mod_path = Path(__file__).resolve().parent.parent / "src" / "features" / "SystemModelingModule" / "canvas" / "visual_contract.py"
     spec = importlib.util.spec_from_file_location(mod_name, mod_path)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[mod_name] = mod
@@ -1793,9 +1793,9 @@ def _import_translational_contracts():
     # Ensure visual_contract is loaded first
     _import_visual_contract()
 
-    mod_name = "app.ui.canvas.translational_contracts"
+    mod_name = "src.features.SystemModelingModule.canvas.translational_contracts"
     # Always reload to pick up latest file changes
-    mod_path = Path(__file__).resolve().parent.parent / "app" / "ui" / "canvas" / "translational_contracts.py"
+    mod_path = Path(__file__).resolve().parent.parent / "src" / "features" / "SystemModelingModule" / "canvas" / "translational_contracts.py"
     spec = importlib.util.spec_from_file_location(mod_name, mod_path)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[mod_name] = mod
@@ -1823,12 +1823,14 @@ def _import_component_system():
     _import_translational_contracts()
     _import_electrical_contracts()
 
-    # Stub out app.ui.canvas package to prevent circular __init__ import
+    # Stub out canvas packages to prevent circular __init__ import
     if "app.ui.canvas" not in sys.modules:
         sys.modules["app.ui.canvas"] = MagicMock()
+    if "src.features.SystemModelingModule.canvas" not in sys.modules:
+        sys.modules["src.features.SystemModelingModule.canvas"] = MagicMock()
 
-    target = "app.ui.canvas.component_system"
-    mod_path = Path(__file__).resolve().parent.parent / "app" / "ui" / "canvas" / "component_system.py"
+    target = "src.features.SystemModelingModule.canvas.component_system"
+    mod_path = Path(__file__).resolve().parent.parent / "src" / "features" / "SystemModelingModule" / "canvas" / "component_system.py"
     spec = importlib.util.spec_from_file_location(target, mod_path)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[target] = mod
@@ -2041,8 +2043,8 @@ def _import_electrical_contracts():
 
     _import_visual_contract()
 
-    mod_name = "app.ui.canvas.electrical_contracts"
-    mod_path = Path(__file__).resolve().parent.parent / "app" / "ui" / "canvas" / "electrical_contracts.py"
+    mod_name = "src.features.SystemModelingModule.canvas.electrical_contracts"
+    mod_path = Path(__file__).resolve().parent.parent / "src" / "features" / "SystemModelingModule" / "canvas" / "electrical_contracts.py"
     spec = importlib.util.spec_from_file_location(mod_name, mod_path)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[mod_name] = mod

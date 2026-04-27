@@ -108,6 +108,7 @@ def _install_role_shim() -> None:
         }
 
         sys.modules["app.ui.canvas.component_system"] = fake_mod
+        sys.modules["src.features.SystemModelingModule.canvas.component_system"] = fake_mod
 
     # Ensure our _Component uses the same enum as the compiler
     global _IoRole

@@ -109,19 +109,17 @@ class TestEmitLinearizationWarning(unittest.TestCase):
     list is non-empty and is a no-op when it is empty."""
 
     def test_empty_list_emits_no_log(self):
-        with self.assertLogs("app.core.symbolic.linearization_warnings",
-                              level="WARNING") as cm:
+        _mod = "src.shared.engine.linearization_warnings"
+        with self.assertLogs(_mod, level="WARNING") as cm:
             emit_linearization_warning([], backend_label="Test")
             # Force at least one record to exist so assertLogs doesn't fail;
             # this confirms our call did NOT add anything above it.
-            logging.getLogger(
-                "app.core.symbolic.linearization_warnings"
-            ).warning("sentinel")
+            logging.getLogger(_mod).warning("sentinel")
         self.assertEqual(len(cm.records), 1)
         self.assertEqual(cm.records[0].getMessage(), "sentinel")
 
     def test_non_empty_list_emits_one_warning_with_label_and_ids(self):
-        with self.assertLogs("app.core.symbolic.linearization_warnings",
+        with self.assertLogs("src.shared.engine.linearization_warnings",
                               level="WARNING") as cm:
             emit_linearization_warning(
                 ["w1", "w2"], backend_label="MyBackend",
