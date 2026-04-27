@@ -192,8 +192,17 @@ class CanvasCompiler:
         # graph is ready for EquationBuilder / QuarterCarNumericBackend / etc.
 
     The compiler is stateless — each call to ``compile()`` returns a fresh
-    independent graph.
+    independent graph.  After ``compile()`` returns, ``self.errors`` contains
+    any warnings/errors collected during that compilation.
     """
+
+    def __init__(self) -> None:
+        self._errors: list[str] = []
+
+    @property
+    def errors(self) -> list[str]:
+        """Errors collected during the most recent ``compile()`` call."""
+        return list(self._errors)
 
     # ------------------------------------------------------------------
     # Public API
@@ -214,6 +223,8 @@ class CanvasCompiler:
             A fully assembled ``SystemGraph`` with nodes, connections,
             and probes attached.
         """
+        self._errors = []  # reset for each compile call
+
         # ── 1. Create core components ──────────────────────────────────
         graph = SystemGraph()
         type_map:    dict[str, str]  = {}   # component_id → type_key
@@ -232,6 +243,9 @@ class CanvasCompiler:
 
             if type_key == "mechanical_reference":
                 ground_port_id = f"{comp_id}.port"
+            elif type_key == "electrical_reference":
+                # Electrical ground — resolve via port_mapping
+                ground_port_id = f"{comp_id}.p"
 
             from app.ui.canvas.component_system import ComponentIoRole
             for role in cv.assigned_io_roles:
@@ -331,10 +345,32 @@ class CanvasCompiler:
         comp_id: str,
         type_key: str,
     ) -> BaseComponent | None:
-        """Delegate to ComponentVisualSpec.core_factory."""
+        """Create a core component via registry (preferred) or legacy factory.
+
+        Resolution order:
+          1. spec.registry_name is set → use ComponentRegistry to create
+          2. spec.core_factory is set  → use legacy factory callable
+          3. Neither                   → return None
+        """
         from app.ui.canvas.component_system import COMPONENT_CATALOG
         spec = COMPONENT_CATALOG.get(type_key)
-        if spec is not None and spec.core_factory is not None:
+        if spec is None:
+            return None
+
+        # --- Registry path (Phase 6) ---
+        if spec.registry_name is not None:
+            from app.core.registry import registry
+            entry = registry.get(spec.registry_name)
+            if entry is None:
+                self._errors.append(
+                    f"Component '{comp_id}': registry_name '{spec.registry_name}' "
+                    f"not found in ComponentRegistry"
+                )
+                return None
+            return entry.create(comp_id)
+
+        # --- Legacy path ---
+        if spec.core_factory is not None:
             return spec.core_factory(comp_id)
         return None
 
@@ -348,8 +384,37 @@ class CanvasCompiler:
         type_map: dict[str, str],
         canvas_connector_name: str,
     ) -> str | None:
-        """Return the core port ID for a canvas connector, or None."""
+        """Return the core port ID for a canvas connector, or None.
+
+        Resolution order:
+          1. spec.registry_name is set → spec.port_mapping MUST be present
+             (incomplete registry metadata is an explicit error)
+          2. No registry_name → legacy _CANVAS_TO_CORE_PORT fallback
+        """
+        from app.ui.canvas.component_system import COMPONENT_CATALOG
         type_key = type_map.get(comp_id, "")
+        spec = COMPONENT_CATALOG.get(type_key)
+
+        if spec is not None and spec.registry_name is not None:
+            # --- Registry path: port_mapping is required ---
+            if not spec.port_mapping:
+                self._errors.append(
+                    f"Component '{comp_id}' (type '{type_key}'): "
+                    f"registry_name='{spec.registry_name}' is set but "
+                    f"port_mapping is empty — incomplete registry metadata"
+                )
+                return None
+            port_name = spec.port_mapping.get(canvas_connector_name)
+            if port_name is None:
+                self._errors.append(
+                    f"Component '{comp_id}' (type '{type_key}'): "
+                    f"canvas port '{canvas_connector_name}' not found in "
+                    f"port_mapping {list(spec.port_mapping.keys())}"
+                )
+                return None
+            return f"{comp_id}.{port_name}"
+
+        # --- Legacy path ---
         port_name = _CANVAS_TO_CORE_PORT.get(type_key, {}).get(canvas_connector_name)
         if port_name is None:
             return None

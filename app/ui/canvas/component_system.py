@@ -10,10 +10,24 @@ import warnings
 
 if TYPE_CHECKING:
     from app.core.base.component import BaseComponent
+    from app.ui.canvas.visual_contract import ComponentVisualContract
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtSvg import QSvgRenderer
+
+from app.ui.canvas.electrical_contracts import (
+    CAPACITOR_CONTRACT,
+    GROUND_CONTRACT,
+    INDUCTOR_CONTRACT,
+    RESISTOR_CONTRACT,
+)
+from app.ui.canvas.translational_contracts import (
+    DAMPER_CONTRACT,
+    FIXED_CONTRACT,
+    MASS_CONTRACT,
+    SPRING_CONTRACT,
+)
 
 
 class ComponentDomain(str, Enum):
@@ -177,6 +191,20 @@ class ComponentVisualSpec:
     presentation: ComponentPresentationStyle = field(default_factory=ComponentPresentationStyle)
     svg_symbol: SvgSymbolAsset | None = None
     core_factory: Callable[[str], BaseComponent | None] | None = None
+    # ── Phase 6 integration fields (T6.1a) ──────────────────────────
+    # registry_name: maps this visual spec to a ComponentRegistry entry.
+    # None = legacy path (core_factory used directly), str = registry path.
+    registry_name: str | None = None
+    # port_mapping: canvas connector name → core port name.
+    # Empty dict = legacy path (_CANVAS_TO_CORE_PORT used).
+    port_mapping: dict[str, str] = field(default_factory=dict)
+    # ── Phase 7 visual contract (T7.1) ────────────────────────────────
+    # When set, the primitive contract renderer draws this component
+    # instead of the legacy SVG / _draw_* methods.
+    visual_contract: ComponentVisualContract | None = None
+    # default_orientation: preferred placement rotation for this component.
+    # Horizontal-canonical contracts that should display vertically use DEG_90.
+    default_orientation: Orientation = Orientation.DEG_0
 
 
 @dataclass(slots=True)
@@ -375,6 +403,31 @@ class CanvasVisualComponent:
         self.orientation = self.orientation.rotate_counterclockwise()
 
     def transformed_connector_ports(self, rect: QRectF) -> list[tuple[ConnectorPortDefinition, QPointF]]:
+        # ── Phase 7: contract-aware port positions ────────────────────
+        # When a visual_contract is present, port screen positions come
+        # from the contract (with rotation), but the ConnectorPortDefinition
+        # objects are preserved so wire matching by name (R/C/ref) still works.
+        contract = self.spec.visual_contract
+        if contract is not None:
+            from app.ui.canvas.visual_contract import ContractRenderer
+            rotation_deg = float(self.orientation.value)
+            # Build ordered list of contract port names matching connector_ports order
+            contract_port_names = list(contract.ports.keys())
+            port_points: list[tuple[ConnectorPortDefinition, QPointF]] = []
+            for i, port in enumerate(self.spec.connector_ports):
+                if i < len(contract_port_names):
+                    cp = contract.ports[contract_port_names[i]]
+                    screen_pos = ContractRenderer.port_screen_position(cp, rect, rotation_deg)
+                else:
+                    # Fallback: legacy calculation for extra ports
+                    screen_pos = QPointF(
+                        rect.left() + rect.width() * port.anchor[0],
+                        rect.top() + rect.height() * port.anchor[1],
+                    )
+                port_points.append((port, screen_pos))
+            return port_points
+
+        # ── Legacy path (no visual contract) ──────────────────────────
         center = rect.center()
         anchor_rect = self.visual_bounds(rect) if self.spec.presentation.terminal_anchor_mode == "visual_terminal" else rect
         port_points: list[tuple[ConnectorPortDefinition, QPointF]] = []
@@ -471,7 +524,7 @@ class ComponentRenderer:
             road_profile_phase=road_profile_phase,
             road_profile_active=road_profile_active,
         )
-        self._draw_connector_ports(painter, component, rect)
+        self._draw_connector_ports(painter, component, rect, selected=selected)
         self._draw_terminal_labels(painter, component, rect)
         if selected:
             self._draw_selection_overlay(painter, component, rect)
@@ -491,6 +544,14 @@ class ComponentRenderer:
         road_profile_phase: float,
         road_profile_active: bool,
     ) -> None:
+        # ── Phase 7: visual contract renderer (takes priority) ────────
+        contract = component.spec.visual_contract
+        if contract is not None:
+            from app.ui.canvas.visual_contract import ContractRenderer
+            rotation_deg = float(component.orientation.value)
+            ContractRenderer.draw(painter, contract, rect, rotation_deg)
+            return
+
         kind = component.spec.symbol_kind
         if self._should_draw_svg_symbol(component, rect):
             if self._draw_svg_symbol(painter, component, rect, component.orientation):
@@ -672,12 +733,20 @@ class ComponentRenderer:
             return candidate_rect, alignment
         return candidates[0]
 
-    def _draw_connector_ports(self, painter: QPainter, component: CanvasVisualComponent, rect: QRectF) -> None:
+    def _draw_connector_ports(self, painter: QPainter, component: CanvasVisualComponent, rect: QRectF, *, selected: bool = False) -> None:
         painter.save()
-        painter.setBrush(QColor("#ffffff"))
-        painter.setPen(QPen(QColor("#2c3e50"), 1.1))
+        if selected:
+            # Selected: slightly larger, more visible ports
+            painter.setBrush(QColor("#ffffff"))
+            painter.setPen(QPen(QColor("#2c3e50"), 1.4))
+            radius = 4.0
+        else:
+            # Normal: subtle small circles — present but not distracting
+            painter.setBrush(QColor("#f0f4f8"))
+            painter.setPen(QPen(QColor("#94a3b8"), 1.0))
+            radius = 3.0
         for _, point in component.transformed_connector_ports(rect):
-            painter.drawRect(QRectF(point.x() - 4.5, point.y() - 4.5, 9.0, 9.0))
+            painter.drawEllipse(point, radius, radius)
         painter.restore()
 
     def _draw_connector_debug_overlay(self, painter: QPainter, component: CanvasVisualComponent, rect: QRectF) -> None:
@@ -1154,7 +1223,7 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             domain=ComponentDomain.MECHANICAL,
             symbol_kind="mass",
             category=ComponentVisualCategory.RIGID,
-            base_size=(240.0, 90.0),
+            base_size=(180.0, 80.0),
             connector_ports=(
                 ConnectorPortDefinition("top", (0.5, 0.0), connector_offset=10.0),
                 ConnectorPortDefinition("bottom", (0.5, 1.0), connector_offset=10.0),
@@ -1168,10 +1237,10 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             allowed_io_roles=(ComponentIoRole.OUTPUT,),
             preferred_io_axis=ComponentIoAxis.VERTICAL,
             preferred_symbol_aspect_ratio=1.35,
-            minimum_size=(140.0, 70.0),
+            minimum_size=(120.0, 60.0),
             presentation=ComponentPresentationStyle(
-                preferred_size=(228.0, 108.0),
-                minimum_size=(180.0, 92.0),
+                preferred_size=(172.0, 92.0),
+                minimum_size=(140.0, 76.0),
                 art_scale=1.12,
                 port_inset=-4.0,
                 selection_padding=(5.0, 6.0, 5.0, 6.0),
@@ -1182,8 +1251,9 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
                 emphasis_shape="rounded_rect",
                 emphasis_padding=(18.0, 12.0, 18.0, 12.0),
             ),
-            svg_symbol=component_svg_asset("Mass_Icon_new.svg", normalization_group="mechanical_passive_vertical", padding=(18.0, 8.0, 18.0, 8.0)),
             core_factory=lambda cid: Mass(cid, mass=1.0),
+            visual_contract=MASS_CONTRACT,
+            default_orientation=Orientation.DEG_90,
         ),
         "translational_spring": ComponentVisualSpec(
             type_key="translational_spring",
@@ -1193,8 +1263,8 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             category=ComponentVisualCategory.DEFORMABLE,
             base_size=(90.0, 200.0),
             connector_ports=(
-                ConnectorPortDefinition("R", (0.5, 0.0), "R", (0.0, -16.0)),
-                ConnectorPortDefinition("C", (0.5, 1.0), "C", (0.0, 16.0)),
+                ConnectorPortDefinition("R", (0.5, 0.0)),
+                ConnectorPortDefinition("C", (0.5, 1.0)),
             ),
             simulation_hooks=SimulationVisualHooks(
                 supports_translation=False,
@@ -1221,8 +1291,9 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
                 emphasis_shape="rounded_rect",
                 emphasis_padding=(24.0, 28.0, 24.0, 28.0),
             ),
-            svg_symbol=component_svg_asset("Spring_Icon_new.svg", normalization_group="mechanical_passive_vertical"),
             core_factory=lambda cid: Spring(cid, stiffness=1.0),
+            visual_contract=SPRING_CONTRACT,
+            default_orientation=Orientation.DEG_90,
         ),
         "translational_damper": ComponentVisualSpec(
             type_key="translational_damper",
@@ -1232,8 +1303,8 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             category=ComponentVisualCategory.DEFORMABLE,
             base_size=(90.0, 180.0),
             connector_ports=(
-                ConnectorPortDefinition("R", (0.5, 0.0), "R", (0.0, -16.0)),
-                ConnectorPortDefinition("C", (0.5, 1.0), "C", (0.0, 16.0)),
+                ConnectorPortDefinition("R", (0.5, 0.0)),
+                ConnectorPortDefinition("C", (0.5, 1.0)),
             ),
             simulation_hooks=SimulationVisualHooks(
                 supports_translation=False,
@@ -1261,8 +1332,9 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
                 emphasis_shape="rounded_rect",
                 emphasis_padding=(24.0, 26.0, 24.0, 26.0),
             ),
-            svg_symbol=component_svg_asset("Damper_Icon_new.svg", normalization_group="mechanical_passive_vertical"),
             core_factory=lambda cid: Damper(cid, damping=1.0),
+            visual_contract=DAMPER_CONTRACT,
+            default_orientation=Orientation.DEG_90,
         ),
         "wheel": ComponentVisualSpec(
             type_key="wheel",
@@ -1291,8 +1363,8 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             category=ComponentVisualCategory.DEFORMABLE,
             base_size=(130.0, 90.0),
             connector_ports=(
-                ConnectorPortDefinition("R", (0.5, 0.0), "R", (0.0, -14.0)),
-                ConnectorPortDefinition("C", (0.5, 1.0), "C", (0.0, 14.0)),
+                ConnectorPortDefinition("R", (0.5, 0.0)),
+                ConnectorPortDefinition("C", (0.5, 1.0)),
             ),
             simulation_hooks=SimulationVisualHooks(supports_deformation=True, endpoint_deformation=True, display_scale=1.0),
             allowed_io_roles=(ComponentIoRole.OUTPUT,),
@@ -1304,7 +1376,7 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             domain=ComponentDomain.MECHANICAL,
             symbol_kind="mechanical_reference",
             category=ComponentVisualCategory.RIGID,
-            base_size=(440.0, 36.0),
+            base_size=(260.0, 36.0),
             connector_ports=(ConnectorPortDefinition("ref", (0.5, 0.0)),),
             simulation_hooks=SimulationVisualHooks(
                 supports_translation=False,
@@ -1315,9 +1387,9 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             ),
             allowed_io_roles=(),
             preferred_io_axis=ComponentIoAxis.VERTICAL,
-            minimum_size=(180.0, 30.0),
-            svg_symbol=component_svg_asset("Reference_Icon_new.svg", normalization_group="mechanical_boundary", padding=(18.0, 6.0, 18.0, 6.0)),
+            minimum_size=(160.0, 30.0),
             core_factory=lambda cid: MechanicalGround(cid),
+            visual_contract=FIXED_CONTRACT,
         ),
         "translational_free_end": ComponentVisualSpec(
             type_key="translational_free_end",
@@ -1375,7 +1447,9 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
                 terminal_anchor_mode="visual_terminal",
                 label_mode="embedded_svg",
             ),
-            svg_symbol=component_svg_asset("Resistor_Icon_new.svg", normalization_group="electrical_passive"),
+            registry_name="electrical.resistor",
+            port_mapping={"positive": "port_a", "negative": "port_b"},
+            visual_contract=RESISTOR_CONTRACT,
         ),
         "capacitor": ComponentVisualSpec(
             type_key="capacitor",
@@ -1403,7 +1477,9 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             preferred_io_axis=ComponentIoAxis.HORIZONTAL,
             preferred_symbol_aspect_ratio=120.0 / 56.0,
             minimum_size=(92.0, 44.0),
-            svg_symbol=component_svg_asset("Capasitor_Icon_new.svg", normalization_group="electrical_passive"),
+            registry_name="electrical.capacitor",
+            port_mapping={"positive": "port_a", "negative": "port_b"},
+            visual_contract=CAPACITOR_CONTRACT,
         ),
         "inductor": ComponentVisualSpec(
             type_key="inductor",
@@ -1431,7 +1507,7 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             preferred_io_axis=ComponentIoAxis.HORIZONTAL,
             preferred_symbol_aspect_ratio=120.0 / 56.0,
             minimum_size=(92.0, 44.0),
-            svg_symbol=component_svg_asset("Inductor_Icon_new.svg", normalization_group="electrical_passive"),
+            visual_contract=INDUCTOR_CONTRACT,
         ),
         "diode": ComponentVisualSpec(
             type_key="diode",
@@ -1483,7 +1559,9 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             preferred_io_axis=ComponentIoAxis.VERTICAL,
             preferred_symbol_aspect_ratio=1.0,
             minimum_size=(56.0, 56.0),
-            svg_symbol=component_svg_asset("Elektrical_Reference.svg", normalization_group="electrical_reference"),
+            registry_name="electrical.ground",
+            port_mapping={"ref": "p"},
+            visual_contract=GROUND_CONTRACT,
         ),
         "dc_voltage_source": ComponentVisualSpec(
             type_key="dc_voltage_source",
@@ -1514,6 +1592,8 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             preferred_symbol_aspect_ratio=1.0,
             minimum_size=(84.0, 64.0),
             svg_symbol=component_svg_asset("DC_Voltage_source.svg", normalization_group="electrical_source"),
+            registry_name="electrical.voltage_source",
+            port_mapping={"positive": "port_a", "negative": "port_b"},
         ),
         "ac_voltage_source": ComponentVisualSpec(
             type_key="ac_voltage_source",
@@ -1576,8 +1656,8 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             category=ComponentVisualCategory.RIGID,
             base_size=(110.0, 150.0),
             connector_ports=(
-                ConnectorPortDefinition("R", (0.5, 0.0), "R", (0.0, -16.0), connector_offset=6.0),
-                ConnectorPortDefinition("C", (0.5, 1.0), "C", (0.0, 16.0), connector_offset=6.0),
+                ConnectorPortDefinition("R", (0.5, 0.0), connector_offset=6.0),
+                ConnectorPortDefinition("C", (0.5, 1.0), connector_offset=6.0),
             ),
             simulation_hooks=SimulationVisualHooks(supports_translation=False, supports_deformation=False, display_scale=1.0),
             allowed_io_roles=(ComponentIoRole.INPUT,),
@@ -1613,8 +1693,8 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             category=ComponentVisualCategory.RIGID,
             base_size=(110.0, 150.0),
             connector_ports=(
-                ConnectorPortDefinition("R", (0.5, 0.0), "R", (0.0, -16.0), connector_offset=6.0),
-                ConnectorPortDefinition("C", (0.5, 1.0), "C", (0.0, 16.0), connector_offset=6.0),
+                ConnectorPortDefinition("R", (0.5, 0.0), connector_offset=6.0),
+                ConnectorPortDefinition("C", (0.5, 1.0), connector_offset=6.0),
             ),
             simulation_hooks=SimulationVisualHooks(supports_translation=False, supports_deformation=False, display_scale=1.0),
             allowed_io_roles=(ComponentIoRole.OUTPUT,),
@@ -1649,8 +1729,8 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             category=ComponentVisualCategory.RIGID,
             base_size=(110.0, 150.0),
             connector_ports=(
-                ConnectorPortDefinition("R", (0.5, 0.0), "R", (0.0, -16.0), connector_offset=6.0),
-                ConnectorPortDefinition("C", (0.5, 1.0), "C", (0.0, 16.0), connector_offset=6.0),
+                ConnectorPortDefinition("R", (0.5, 0.0), connector_offset=6.0),
+                ConnectorPortDefinition("C", (0.5, 1.0), connector_offset=6.0),
             ),
             simulation_hooks=SimulationVisualHooks(supports_translation=False, supports_deformation=False, display_scale=1.0),
             allowed_io_roles=(ComponentIoRole.OUTPUT,),

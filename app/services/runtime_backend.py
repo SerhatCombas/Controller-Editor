@@ -384,10 +384,14 @@ class SymbolicStateSpaceRuntimeBackend:
     def step(self, dt: float, *, road_height: float, external_force: float) -> RuntimeStepResult:
         current_state = self.state.as_vector()
         input_vector = np.zeros((self.b_matrix.shape[1],), dtype=float)
-        if "u_road_source" in self.input_index:
-            input_vector[self.input_index["u_road_source"]] = road_height
-        if "u_body_force" in self.input_index:
-            input_vector[self.input_index["u_body_force"]] = external_force
+        for road_input_name in ("r_road_source", "u_road_source"):
+            if road_input_name in self.input_index:
+                input_vector[self.input_index[road_input_name]] = road_height
+                break
+        for force_input_name in ("f_body_force_out", "u_body_force"):
+            if force_input_name in self.input_index:
+                input_vector[self.input_index[force_input_name]] = external_force
+                break
 
         next_vector = self._discrete_step(current_state, input_vector, dt)
         self.state = QuarterCarState.from_vector(next_vector)

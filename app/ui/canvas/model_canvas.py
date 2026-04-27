@@ -151,14 +151,14 @@ class ModelCanvas(QWidget):
     def load_default_quarter_car_layout(self) -> None:
         self._visual_profile = self._build_visual_profile("quarter_car")
         components = [
-            self._component("Mechanical Random Reference", "road_source", QPointF(120.0, 610.0), (130.0, 80.0), deletable=False),
-            self._component("Mass", "body_mass", QPointF(470.0, 110.0), (228.0, 108.0), deletable=False),
-            self._component("Translational Damper", "suspension_damper", QPointF(410.0, 265.0), (80.0, 142.0), deletable=False),
-            self._component("Translational Spring", "suspension_spring", QPointF(630.0, 260.0), (78.0, 148.0), deletable=False),
-            self._component("Wheel", "wheel_mass", QPointF(470.0, 470.0), (230.0, 230.0), deletable=False),
-            self._component("Tire Stiffness", "tire_stiffness", QPointF(515.0, 705.0), (130.0, 90.0), deletable=False),
-            self._component("Ideal Force Source", "body_force", QPointF(760.0, 110.0), (80.0, 108.0), deletable=False),
-            self._component("Mechanical Translational Reference", "ground", QPointF(250.0, 820.0), (560.0, 36.0), deletable=False, orientation=Orientation.DEG_0),
+            self._component("Mechanical Random Reference", "road_source", QPointF(60.0, 710.0), (130.0, 80.0), deletable=False),
+            self._component("Mass", "body_mass", QPointF(214.0, 100.0), (172.0, 92.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Translational Damper", "suspension_damper", QPointF(151.0, 235.0), (80.0, 142.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Translational Spring", "suspension_spring", QPointF(261.0, 235.0), (78.0, 148.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Wheel", "wheel_mass", QPointF(185.0, 420.0), (230.0, 230.0), deletable=False),
+            self._component("Tire Stiffness", "tire_stiffness", QPointF(235.0, 690.0), (130.0, 90.0), deletable=False),
+            self._component("Ideal Force Source", "body_force", QPointF(369.0, 235.0), (80.0, 108.0), deletable=False),
+            self._component("Mechanical Translational Reference", "ground", QPointF(170.0, 820.0), (260.0, 36.0), deletable=False, orientation=Orientation.DEG_0),
         ]
         wires = [
             CanvasWireConnection("body_mass", "bottom", "suspension_damper", "R"),
@@ -175,11 +175,11 @@ class ModelCanvas(QWidget):
     def load_single_mass_layout(self) -> None:
         self._visual_profile = self._build_visual_profile("single_mass")
         components = [
-            self._component("Mechanical Random Reference", "input_force", QPointF(120.0, 160.0), (130.0, 80.0), deletable=False),
-            self._component("Mass", "mass", QPointF(430.0, 120.0), (228.0, 108.0), deletable=False),
-            self._component("Translational Spring", "spring", QPointF(420.0, 300.0), (78.0, 148.0), deletable=False),
-            self._component("Translational Damper", "damper", QPointF(590.0, 304.0), (80.0, 142.0), deletable=False),
-            self._component("Mechanical Translational Reference", "ground", QPointF(320.0, 720.0), (440.0, 36.0), deletable=False, orientation=Orientation.DEG_0),
+            self._component("Mechanical Random Reference", "input_force", QPointF(60.0, 140.0), (130.0, 80.0), deletable=False),
+            self._component("Mass", "mass", QPointF(214.0, 140.0), (172.0, 92.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Translational Spring", "spring", QPointF(200.0, 280.0), (78.0, 148.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Translational Damper", "damper", QPointF(320.0, 280.0), (80.0, 142.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Mechanical Translational Reference", "ground", QPointF(170.0, 470.0), (260.0, 36.0), deletable=False, orientation=Orientation.DEG_0),
         ]
         wires = [
             CanvasWireConnection("input_force", "output", "mass", "top"),
@@ -193,14 +193,14 @@ class ModelCanvas(QWidget):
     def load_two_mass_layout(self) -> None:
         self._visual_profile = self._build_visual_profile("two_mass")
         components = [
-            self._component("Mechanical Random Reference", "input_force", QPointF(80.0, 120.0), (130.0, 80.0), deletable=False),
-            self._component("Mass", "mass_1", QPointF(430.0, 110.0), (228.0, 108.0), deletable=False),
-            self._component("Mass", "mass_2", QPointF(430.0, 410.0), (228.0, 108.0), deletable=False),
-            self._component("Translational Spring", "spring_coupling", QPointF(360.0, 245.0), (78.0, 148.0), deletable=False),
-            self._component("Translational Damper", "damper_coupling", QPointF(650.0, 248.0), (80.0, 142.0), deletable=False),
-            self._component("Translational Spring", "spring_ground", QPointF(360.0, 560.0), (78.0, 148.0), deletable=False),
-            self._component("Translational Damper", "damper_ground", QPointF(650.0, 564.0), (80.0, 142.0), deletable=False),
-            self._component("Mechanical Translational Reference", "ground", QPointF(250.0, 760.0), (560.0, 36.0), deletable=False),
+            self._component("Mechanical Random Reference", "input_force", QPointF(60.0, 100.0), (130.0, 80.0), deletable=False),
+            self._component("Mass", "mass_1", QPointF(214.0, 100.0), (172.0, 92.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Mass", "mass_2", QPointF(214.0, 400.0), (172.0, 92.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Translational Spring", "spring_coupling", QPointF(200.0, 222.0), (78.0, 148.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Translational Damper", "damper_coupling", QPointF(320.0, 222.0), (80.0, 142.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Translational Spring", "spring_ground", QPointF(200.0, 522.0), (78.0, 148.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Translational Damper", "damper_ground", QPointF(320.0, 522.0), (80.0, 142.0), deletable=False, orientation=Orientation.DEG_90),
+            self._component("Mechanical Translational Reference", "ground", QPointF(170.0, 700.0), (260.0, 36.0), deletable=False),
         ]
         wires = [
             CanvasWireConnection("input_force", "output", "mass_1", "top"),
@@ -956,7 +956,8 @@ class ModelCanvas(QWidget):
             endpoints = self._wire_endpoints(wire)
             if endpoints is None:
                 continue
-            painter.drawLine(endpoints[0], endpoints[1])
+            path = self._orthogonal_path(endpoints[0], endpoints[1])
+            painter.drawPolyline(path)
         painter.restore()
 
     def _draw_component(self, painter: QPainter, component: CanvasVisualComponent, *, selected: bool) -> None:
@@ -1062,7 +1063,8 @@ class ModelCanvas(QWidget):
             return
         painter.save()
         painter.setPen(QPen(QColor("#1d4ed8"), 3.0, Qt.DashLine, Qt.RoundCap, Qt.RoundJoin))
-        painter.drawLine(source, self._wire_preview.current_scene_pos)
+        path = self._orthogonal_path(source, self._wire_preview.current_scene_pos)
+        painter.drawPolyline(path)
         painter.restore()
 
     def _draw_marquee_selection(self, painter: QPainter) -> None:
@@ -1191,7 +1193,7 @@ class ModelCanvas(QWidget):
             endpoints = self._wire_endpoints(wire)
             if endpoints is None:
                 continue
-            distance = self._point_to_segment_distance(scene_pos, endpoints[0], endpoints[1])
+            distance = self._point_to_polyline_distance(scene_pos, endpoints[0], endpoints[1])
             if distance <= tolerance and distance < best_distance:
                 best_index = index
                 best_distance = distance
@@ -1633,6 +1635,42 @@ class ModelCanvas(QWidget):
         t = max(0.0, min(1.0, t))
         projection = QPointF(start.x() + t * dx, start.y() + t * dy)
         return math.hypot(point.x() - projection.x(), point.y() - projection.y())
+
+    # ── Orthogonal wire routing (T6.4a) ──────────────────────────────
+    #
+    # Derived visual path only — the underlying connection data model
+    # (CanvasWireConnection, save/load, compiler topology) is unaffected.
+    # The path is recomputed on every paint call from the two semantic
+    # endpoints; it is never persisted.
+
+    @staticmethod
+    def _orthogonal_path(start: QPointF, end: QPointF) -> list[QPointF]:
+        """Compute a Manhattan-style orthogonal polyline between two points.
+
+        Strategy: horizontal-first from *start*, then vertical, then
+        horizontal to *end*.  Uses the midpoint X for the vertical segment.
+
+        Returns a list of QPointF waypoints (including start and end).
+        """
+        mid_x = (start.x() + end.x()) / 2.0
+        return [
+            start,
+            QPointF(mid_x, start.y()),
+            QPointF(mid_x, end.y()),
+            end,
+        ]
+
+    def _point_to_polyline_distance(self, point: QPointF, start: QPointF, end: QPointF) -> float:
+        """Minimum distance from *point* to the orthogonal polyline
+        connecting *start* and *end*.  Reuses ``_point_to_segment_distance``
+        for each segment of the polyline."""
+        waypoints = self._orthogonal_path(start, end)
+        best = float("inf")
+        for i in range(len(waypoints) - 1):
+            d = self._point_to_segment_distance(point, waypoints[i], waypoints[i + 1])
+            if d < best:
+                best = d
+        return best
 
     def _compute_io_marker_layouts(self) -> list[IoMarkerPlacement]:
         placements: list[IoMarkerPlacement] = []

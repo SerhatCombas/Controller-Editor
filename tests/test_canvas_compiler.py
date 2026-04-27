@@ -64,6 +64,12 @@ _module_ComponentIoRole_orig = None
 
 def _install_role_shim() -> None:
     """Make ComponentIoRole and COMPONENT_CATALOG available without PySide6."""
+    try:
+        import app.ui.canvas.component_system  # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+
     import sys
     import types
 
@@ -76,7 +82,7 @@ def _install_role_shim() -> None:
 
         fake_mod.ComponentIoRole = _FakeComponentIoRole
 
-        from dataclasses import dataclass as _dataclass
+        from dataclasses import dataclass as _dataclass, field as _dc_field
         from collections.abc import Callable as _Callable
         from typing import Any as _Any
 
@@ -84,6 +90,8 @@ def _install_role_shim() -> None:
         class _FakeVisualSpec:
             type_key: str
             core_factory: _Callable[[str], _Any] | None = None
+            registry_name: str | None = None
+            port_mapping: dict[str, str] = _dc_field(default_factory=dict)
 
         from app.core.models.mechanical import Damper, Mass, MechanicalGround, Spring, Wheel
         from app.core.models.sources import RandomRoad, StepForce

@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+
+import sympy
 
 from app.core.base.domain import Domain
 from app.core.base.port import Port
 
 if TYPE_CHECKING:
     from app.core.base.contribution import MatrixContribution
+    from app.core.base.equation import SymbolicEquation
     from app.core.base.linearity import LinearityProfile
     from app.core.base.source_descriptor import SourceDescriptor
     from app.core.base.state_contribution import StateContribution
+
+# Category type — matches Component Library Requirements §6
+ComponentCategory = Literal["passive", "source", "sensor", "reference"]
 
 
 @dataclass(slots=True)
@@ -23,6 +29,12 @@ class BaseComponent:
     initial_conditions: dict[str, float] = field(default_factory=dict)
     metadata: dict[str, str] = field(default_factory=dict)
 
+    # -- T0.5 enrichments (all opt-in, backward-compat defaults) ----------
+    category: ComponentCategory | None = None
+    tags: tuple[str, ...] = ()
+    icon_path: str | None = None
+    icon_viewbox: str = "0 0 64 64"
+
     def get_states(self) -> list[str]:
         return []
 
@@ -34,6 +46,41 @@ class BaseComponent:
 
     def dae_equations(self) -> list[str]:
         return self.constitutive_equations()
+
+    # ------------------------------------------------------------------
+    # Symbolic equation path (T0.3) — parallel to string-based path
+    # Subclasses override symbolic_equations() to provide sympy-based
+    # constitutive laws.  Default returns [] so existing components
+    # are unaffected.
+    # ------------------------------------------------------------------
+
+    # Per-instance symbol cache: lazily created to avoid dataclass field cost
+    _sym_cache: dict[str, sympy.Symbol] = field(
+        default_factory=dict, init=False, repr=False
+    )
+
+    def _sym(self, name: str) -> sympy.Symbol:
+        """Get or create a sympy Symbol scoped to this component.
+
+        Repeated calls with the same name return the same object,
+        which is important for equation simplification.
+        """
+        if name not in self._sym_cache:
+            # Prefix with component id for global uniqueness
+            self._sym_cache[name] = sympy.Symbol(
+                f"{self.id}__{name}", real=True
+            )
+        return self._sym_cache[name]
+
+    def symbolic_equations(self) -> list[SymbolicEquation]:
+        """Return sympy-based constitutive equations.
+
+        Default: empty list (component has no symbolic equations yet).
+        Override in new-style components to declare equations symbolically.
+        Both string-based and symbolic paths coexist — the generic reducer
+        will prefer symbolic when available.
+        """
+        return []
 
     def initial_condition_map(self) -> dict[str, float]:
         return dict(self.initial_conditions)

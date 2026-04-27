@@ -406,13 +406,23 @@ class SymbolicStateSpaceBackend:
         return _ResolvedTemplate(graph=graph, id=graph_id)
 
     def _input_index(self, input_variables: list[str], input_channel: str) -> int:
-        channel_to_prefix = {
-            "road_displacement": "u_road_source",
-            "body_force": "u_body_force",
+        channel_to_names = {
+            "road_displacement": ("r_road_source", "u_road_source"),
+            "body_force": ("f_body_force_out", "u_body_force"),
         }
-        expected = channel_to_prefix.get(input_channel)
-        if expected is None:
+        expected_names = channel_to_names.get(input_channel)
+        if expected_names is None:
             raise KeyError(f"Unknown symbolic input channel: {input_channel}")
-        if expected not in input_variables:
+        for expected in expected_names:
+            if expected in input_variables:
+                return input_variables.index(expected)
+        if input_channel == "body_force":
+            for index, input_variable in enumerate(input_variables):
+                if input_variable.startswith("f_") and input_variable.endswith("_out"):
+                    return index
+        if input_channel == "road_displacement":
+            for index, input_variable in enumerate(input_variables):
+                if input_variable.startswith("r_"):
+                    return index
             raise KeyError(f"Input channel {input_channel} not available in symbolic backend")
-        return input_variables.index(expected)
+        raise KeyError(f"Input channel {input_channel} not available in symbolic backend")

@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 
-from PySide6.QtCore import QByteArray, QMimeData, QSize, Qt, QTimer
-from PySide6.QtGui import QDrag, QIcon
+from PySide6.QtCore import QByteArray, QMimeData, QRectF, QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QDrag, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -28,7 +28,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.canvas.component_system import component_catalog, component_spec_for_display_name
+from app.ui.canvas.component_system import component_catalog, component_spec_for_display_name, Orientation
+from app.ui.canvas.visual_contract import ContractRenderer
 from app.ui.canvas.model_canvas import ModelCanvas
 from app.ui.widgets.property_editor import PropertyEditor
 
@@ -56,36 +57,23 @@ class WorkspaceLayout:
 
 
 PALETTE_GROUP_ASSIGNMENTS: dict[str, tuple[str, str]] = {
+    # --- Contract-ready components only ---
+    # Mechanical Passive (4 contracts)
     "mass": ("Mechanical", "Passive"),
     "translational_spring": ("Mechanical", "Passive"),
     "translational_damper": ("Mechanical", "Passive"),
-    "wheel": ("Mechanical", "Passive"),
     "mechanical_reference": ("Mechanical", "Passive"),
-    "translational_free_end": ("Mechanical", "Passive"),
-    "mechanical_random_reference": ("Mechanical", "Sources"),
-    "ideal_force_source": ("Mechanical", "Sources"),
-    "ideal_torque_source": ("Mechanical", "Sources"),
-    "ideal_force_sensor": ("Mechanical", "Sensors"),
-    "ideal_torque_sensor": ("Mechanical", "Sensors"),
-    "ideal_translational_motion_sensor": ("Mechanical", "Sensors"),
+    # Electrical Passive (3 contracts)
     "resistor": ("Electrical", "Passive"),
     "capacitor": ("Electrical", "Passive"),
     "inductor": ("Electrical", "Passive"),
-    "diode": ("Electrical", "Passive"),
-    "switch": ("Electrical", "Passive"),
-    "ac_voltage_source": ("Electrical", "Sources"),
-    "dc_voltage_source": ("Electrical", "Sources"),
-    "ac_current_source": ("Electrical", "Sources"),
-    "dc_current_source": ("Electrical", "Sources"),
-    "voltage_sensor": ("Electrical", "Sensors"),
-    "current_sensor": ("Electrical", "Sensors"),
-    "dc_current_sensor": ("Electrical", "Sensors"),
+    # Electrical Reference (1 contract)
     "electrical_reference": ("Electrical", "References"),
 }
 
 PALETTE_GROUP_ORDER: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("Mechanical", ("Passive", "Sources", "Sensors")),
-    ("Electrical", ("Passive", "Sources", "Sensors", "References")),
+    ("Mechanical", ("Passive",)),
+    ("Electrical", ("Passive", "References")),
 )
 
 
@@ -142,7 +130,7 @@ class ComponentLibraryList(QListWidget):
         super().__init__(parent)
         self.setDragEnabled(True)
         self.setAlternatingRowColors(True)
-        self.setIconSize(QSize(26, 26))
+        self.setIconSize(QSize(_CONTRACT_ICON_SIZE, _CONTRACT_ICON_SIZE))
 
     def populate(self, items: tuple[PaletteItemSpec, ...]) -> None:
         self.clear()
@@ -701,8 +689,51 @@ class ModelPanel(QWidget):
         self._saved_layouts_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+_CONTRACT_ICON_SIZE = 40  # px — contract primitives need more room than 26px SVG icons
+
+
+def _render_contract_icon(spec) -> QIcon:
+    """Render a palette thumbnail from a ComponentVisualContract via ContractRenderer."""
+    contract = spec.visual_contract
+    size = _CONTRACT_ICON_SIZE
+    dpr = 2.0  # retina-friendly
+    px_w = int(size * dpr)
+    px_h = int(size * dpr)
+    pixmap = QPixmap(px_w, px_h)
+    pixmap.setDevicePixelRatio(dpr)
+    pixmap.fill(QColor(0, 0, 0, 0))  # transparent background
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    # Apply default_orientation so palette matches canvas appearance
+    rotation = spec.default_orientation.value if hasattr(spec, "default_orientation") else 0.0
+
+    # Determine aspect-correct rect inside the icon square
+    ew, eh = contract.default_extent
+    if rotation in (90, 270):
+        ew, eh = eh, ew  # swap for rotated display
+
+    margin = 3.0  # px padding inside icon
+    avail = size - 2 * margin
+    scale = min(avail / ew, avail / eh) if ew > 0 and eh > 0 else 1.0
+    rw = ew * scale
+    rh = eh * scale
+    rx = (size - rw) / 2.0
+    ry = (size - rh) / 2.0
+    rect = QRectF(rx, ry, rw, rh)
+
+    ContractRenderer.draw(painter, contract, rect, rotation_deg=rotation)
+    painter.end()
+    return QIcon(pixmap)
+
+
 def _palette_icon_for_display_name(display_name: str) -> QIcon:
     spec = component_spec_for_display_name(display_name)
+    # Contract-first: use ContractRenderer for components with visual_contract
+    if spec.visual_contract is not None:
+        return _render_contract_icon(spec)
+    # SVG fallback for legacy components
     if spec.svg_symbol is None:
         return QIcon()
     resolved = Path(__file__).resolve().parents[3] / spec.svg_symbol.asset_path

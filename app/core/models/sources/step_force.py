@@ -51,6 +51,6 @@ class StepForce(SignalSource):
             kind="force",
             driven_port_name="port",
             reference_port_name="reference_port",
-            input_variable_name=f"u_{self.id}",
+            input_variable_name=f"f_{self.id}_out",
             amplitude_parameter="amplitude",
         )

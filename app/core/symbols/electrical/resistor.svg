@@ -1,0 +1,7 @@
+<!-- Resistor: ports at (0,32) left, (64,32) right -->
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <path d="M0,32 L12,32 L16,22 L22,42 L28,22 L34,42 L40,22 L46,42 L52,32 L64,32"
+        stroke="currentColor" fill="none" stroke-width="2" stroke-linejoin="round"/>
+  <text x="32" y="10" text-anchor="middle" font-size="8" font-family="sans-serif" fill="currentColor">{{name}}</text>
+  <text x="32" y="58" text-anchor="middle" font-size="7" font-family="sans-serif" fill="currentColor">{{R}}</text>
+</svg>

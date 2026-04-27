@@ -410,6 +410,6 @@ class RandomRoad(SignalSource):
             kind="displacement",
             driven_port_name="port",
             reference_port_name="reference_port",
-            input_variable_name=f"u_{self.id}",
+            input_variable_name=f"r_{self.id}",
             amplitude_parameter="amplitude",
         )

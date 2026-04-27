@@ -53,7 +53,10 @@ class SourceDescriptor:
             "other side" of the source (e.g. ground for a grounded force).
             May be None for single-ended sources.
         input_variable_name: The symbolic name that will appear in the
-            input vector u. Conventionally f"u_{component_id}".
+            input vector. Prefer physical channel names when a stable port
+            variable exists, e.g. force sources use ``f_<component_id>_out``
+            and road displacement sources use ``r_<component_id>``. Runtime
+            adapters may still accept legacy ``u_<component_id>`` aliases.
         amplitude_parameter: Optional name of the parameter key in the
             component's `parameters` dict that carries the nominal
             amplitude (used by the UI when rendering defaults).
