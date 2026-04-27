@@ -377,15 +377,14 @@ class TestSpringForceOutput(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from app.core.templates.single_mass import build_single_mass_template
+        from tests.fixtures.graph_factories import build_single_mass_graph
         from app.core.symbolic.polymorphic_dae_reducer import PolymorphicDAEReducer
         from app.core.symbolic.symbolic_system import SymbolicSystem
 
         class _Stub(SymbolicSystem):
             pass
 
-        template = build_single_mass_template()
-        cls.graph = template.graph
+        cls.graph = build_single_mass_graph()
         cls.ode = PolymorphicDAEReducer().reduce(cls.graph, _Stub())
         cls.mapper = OutputMapper()
 
@@ -435,15 +434,14 @@ class TestDamperForceOutput(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from app.core.templates.single_mass import build_single_mass_template
+        from tests.fixtures.graph_factories import build_single_mass_graph
         from app.core.symbolic.polymorphic_dae_reducer import PolymorphicDAEReducer
         from app.core.symbolic.symbolic_system import SymbolicSystem
 
         class _Stub(SymbolicSystem):
             pass
 
-        template = build_single_mass_template()
-        cls.graph = template.graph
+        cls.graph = build_single_mass_graph()
         cls.ode = PolymorphicDAEReducer().reduce(cls.graph, _Stub())
         cls.mapper = OutputMapper()
 
@@ -482,15 +480,14 @@ class TestForceInvalidTarget(unittest.TestCase):
     """Force probe targeting a mass (no stiffness/damping) is unsupported."""
 
     def test_mass_target_unsupported(self):
-        from app.core.templates.single_mass import build_single_mass_template
+        from tests.fixtures.graph_factories import build_single_mass_graph
         from app.core.symbolic.polymorphic_dae_reducer import PolymorphicDAEReducer
         from app.core.symbolic.symbolic_system import SymbolicSystem
 
         class _Stub(SymbolicSystem):
             pass
 
-        template = build_single_mass_template()
-        graph = template.graph
+        graph = build_single_mass_graph()
         ode = PolymorphicDAEReducer().reduce(graph, _Stub())
 
         probe = _BaseProbeStub("frc", "Mass force", "force", "mass")
@@ -657,13 +654,12 @@ class TestQuarterCarProbeSet(unittest.TestCase):
     """Map all probes from the quarter-car template against realistic ODE."""
 
     def setUp(self):
-        from app.core.templates import build_quarter_car_template
+        from tests.fixtures.minimal_wheel_road import build_wheel_road_graph
         from app.core.symbolic.dae_reducer import DAEReducer
         from app.core.symbolic.equation_builder import EquationBuilder
         from app.core.symbolic.symbolic_system import SymbolicSystem
 
-        template = build_quarter_car_template()
-        self.graph = template.graph
+        self.graph = build_wheel_road_graph()
 
         # Build ReducedODESystem via workaround (sandbox EquationBuilder limitation)
         eb = EquationBuilder()

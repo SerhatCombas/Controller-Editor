@@ -1201,8 +1201,9 @@ class CanvasEditingTests(unittest.TestCase):
     def test_component_palette_exposes_mechanical_and_electrical_groups(self):
         panel = ModelPanel()
         self.assertEqual(panel.palette.group_titles(), ["Mechanical", "Electrical"])
-        self.assertEqual(panel.palette.subgroup_titles("Mechanical"), ["Passive", "Sources", "Sensors"])
-        self.assertEqual(panel.palette.subgroup_titles("Electrical"), ["Passive", "Sources", "Sensors", "References"])
+        # 4-level hierarchy: Domain → Subdomain → Category → Item
+        self.assertEqual(panel.palette.subgroup_titles("Mechanical"), ["Translational", "Rotational"])
+        self.assertEqual(panel.palette.subgroup_titles("Electrical"), ["Analog", "Digital"])
         self.assertTrue(panel.library_sections["Mechanical"].is_expanded())
         self.assertFalse(panel.library_sections["Electrical"].is_expanded())
 
@@ -1222,27 +1223,28 @@ class CanvasEditingTests(unittest.TestCase):
         panel = ModelPanel()
         mechanical_items = panel.palette.group_items("Mechanical")
         electrical_items = panel.palette.group_items("Electrical")
+        # Backend-ready components in 4-level hierarchy
         self.assertIn("Mass", mechanical_items)
         self.assertIn("Translational Spring", mechanical_items)
         self.assertIn("Mechanical Translational Reference", mechanical_items)
-        self.assertIn("Mechanical Random Reference", mechanical_items)
         self.assertIn("Ideal Force Source", mechanical_items)
-        self.assertIn("Ideal Translational Motion Sensor", mechanical_items)
         self.assertIn("Electrical Reference", electrical_items)
         self.assertIn("Resistor", electrical_items)
-        self.assertIn("Diode", electrical_items)
-        self.assertIn("AC Voltage Source", electrical_items)
-        self.assertIn("Switch", electrical_items)
-        self.assertIn("Voltage Sensor", electrical_items)
+        self.assertIn("DC Voltage Source", electrical_items)
+        self.assertIn("DC Current Source", electrical_items)
 
-    def test_missing_palette_items_appear_in_correct_groups(self):
+    def test_palette_items_appear_in_correct_4level_groups(self):
         panel = ModelPanel()
-        self.assertIn("Mechanical Random Reference", panel.palette.group_items("Mechanical/Sources"))
-        self.assertIn("Diode", panel.palette.group_items("Electrical/Passive"))
+        self.assertIn("Mass", panel.palette.group_items("Mechanical/Translational/Components"))
+        self.assertIn("Ideal Force Source", panel.palette.group_items("Mechanical/Translational/Sources"))
+        self.assertIn("Resistor", panel.palette.group_items("Electrical/Analog/Components"))
+        self.assertIn("DC Voltage Source", panel.palette.group_items("Electrical/Analog/Sources"))
 
     def test_component_palette_icons_load_and_scroll_area_remains_stable(self):
         panel = ModelPanel()
-        mechanical_list = panel.palette.section("Mechanical/Passive").library
+        components_section = panel.palette.section("Mechanical/Translational/Components")
+        self.assertIsNotNone(components_section)
+        mechanical_list = components_section.library
         icon_item = mechanical_list.item(0)
         self.assertFalse(icon_item.icon().isNull())
         self.assertTrue(panel.palette_scroll.widgetResizable())
@@ -1254,27 +1256,28 @@ class CanvasEditingTests(unittest.TestCase):
 
     def test_component_palette_search_filters_across_groups(self):
         panel = ModelPanel()
-        panel.palette_search.setText("diode")
-        self.assertIn("Diode", panel.palette.visible_group_items("Electrical/Passive"))
+        panel.palette_search.setText("resistor")
+        self.assertIn("Resistor", panel.palette.visible_group_items("Electrical/Analog/Components"))
         self.assertEqual(panel.palette.visible_group_items("Mechanical"), [])
-        panel.palette_search.setText("random")
-        self.assertIn("Mechanical Random Reference", panel.palette.visible_group_items("Mechanical/Sources"))
+        panel.palette_search.setText("force")
+        self.assertIn("Ideal Force Source", panel.palette.visible_group_items("Mechanical/Translational/Sources"))
 
     def test_clearing_palette_search_restores_hierarchical_view(self):
         panel = ModelPanel()
-        panel.palette_search.setText("diode")
+        panel.palette_search.setText("resistor")
         self.assertEqual(panel.palette.visible_group_items("Mechanical"), [])
         panel.palette_search.clear()
-        self.assertIn("Mechanical Random Reference", panel.palette.group_items("Mechanical/Sources"))
-        self.assertIn("Diode", panel.palette.visible_group_items("Electrical"))
+        self.assertIn("Mass", panel.palette.group_items("Mechanical/Translational/Components"))
+        self.assertIn("Resistor", panel.palette.visible_group_items("Electrical"))
 
     def test_new_hierarchical_palette_sections_expose_expected_leaf_items(self):
         panel = ModelPanel()
-        self.assertIn("Ideal Force Source", panel.palette.group_items("Mechanical/Sources"))
-        self.assertIn("Ideal Force Sensor", panel.palette.group_items("Mechanical/Sensors"))
-        self.assertIn("AC Current Source", panel.palette.group_items("Electrical/Sources"))
-        self.assertIn("Voltage Sensor", panel.palette.group_items("Electrical/Sensors"))
-        self.assertIn("Electrical Reference", panel.palette.group_items("Electrical/References"))
+        self.assertIn("Ideal Force Source", panel.palette.group_items("Mechanical/Translational/Sources"))
+        self.assertIn("DC Voltage Source", panel.palette.group_items("Electrical/Analog/Sources"))
+        self.assertIn("Electrical Reference", panel.palette.group_items("Electrical/Analog/Components"))
+        # Empty categories should have no items
+        self.assertEqual(panel.palette.group_items("Mechanical/Translational/Sensors"), [])
+        self.assertEqual(panel.palette.group_items("Mechanical/Rotational"), [])
 
     def test_property_panel_distinguishes_fixed_and_free_boundaries(self):
         panel = ModelPanel()

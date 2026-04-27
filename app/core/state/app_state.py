@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.core.models.quarter_car_model import QuarterCarParameters, QuarterCarState
 
 
 @dataclass(slots=True)
@@ -57,9 +56,9 @@ class SimulationConfig:
 
 @dataclass(slots=True)
 class AppState:
-    parameters: QuarterCarParameters = field(default_factory=QuarterCarParameters)
+    parameters: dict = field(default_factory=dict)
     road_profile: RoadProfileConfig = field(default_factory=RoadProfileConfig)
     controller: ControllerConfig = field(default_factory=ControllerConfig)
     selection: SignalSelection = field(default_factory=SignalSelection)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
-    state: QuarterCarState = field(default_factory=QuarterCarState)
+    state: dict = field(default_factory=dict)

@@ -28,6 +28,20 @@ from app.core.state.feature_flags import DEFAULT_FLAGS, FeatureFlags, ParityMode
 from app.core.symbolic.reducer_parity_harness import ReducerParityHarness
 from app.core.symbolic.symbolic_system import SymbolicSystem, ReducedODESystem
 from app.core.symbolic.polymorphic_dae_reducer import PolymorphicDAEReducer
+from tests.fixtures.graph_factories import (
+    build_single_mass_template_def,
+    build_two_mass_template_def,
+)
+from tests.fixtures.minimal_wheel_road import build_wheel_road_graph
+from app.core.templates.template_definition import TemplateDefinition
+
+
+def _build_quarter_car_fixture():
+    graph = build_wheel_road_graph()
+    return TemplateDefinition(
+        id="quarter_car", name="Quarter-Car Suspension", graph=graph,
+        default_input_id="road_source", default_output_id="body_displacement",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -72,8 +86,7 @@ class TestHarnessPrimaryMode(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        from app.core.templates.single_mass import build_single_mass_template
-        cls.template = build_single_mass_template()
+        cls.template = build_single_mass_template_def()
 
         # Build the expected polymorphic result independently
         cls.poly_reducer = PolymorphicDAEReducer()
@@ -133,13 +146,11 @@ class TestHarnessPrimaryModeDegradedReport(unittest.TestCase):
 
     def test_primary_survives_legacy_failure(self) -> None:
         """Use a broken legacy reducer that always raises."""
-        from app.core.templates.single_mass import build_single_mass_template
-
         class _BrokenLegacy:
             def reduce(self, *args, **kwargs):
                 raise RuntimeError("Simulated legacy reducer failure")
 
-        template = build_single_mass_template()
+        template = build_single_mass_template_def()
         flags = FeatureFlags(parity_mode=ParityMode.PRIMARY)
         harness = ReducerParityHarness(
             flags=flags,
@@ -181,16 +192,13 @@ class TestDefaultFlagsEndToEnd(unittest.TestCase):
         self.assertIsNotNone(report)
 
     def test_single_mass_1dof(self) -> None:
-        from app.core.templates.single_mass import build_single_mass_template
-        self._run_template(build_single_mass_template, expected_n_dof=1)
+        self._run_template(build_single_mass_template_def, expected_n_dof=1)
 
     def test_two_mass_2dof(self) -> None:
-        from app.core.templates.two_mass import build_two_mass_template
-        self._run_template(build_two_mass_template, expected_n_dof=2)
+        self._run_template(build_two_mass_template_def, expected_n_dof=2)
 
     def test_quarter_car_2dof(self) -> None:
-        from app.core.templates.quarter_car import build_quarter_car_template
-        self._run_template(build_quarter_car_template, expected_n_dof=2)
+        self._run_template(_build_quarter_car_fixture, expected_n_dof=2)
 
 
 if __name__ == "__main__":

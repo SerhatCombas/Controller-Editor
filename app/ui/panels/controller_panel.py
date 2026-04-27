@@ -18,9 +18,51 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.models.quarter_car_model import QuarterCarParameters
 from app.core.state.app_state import ControllerConfig, RoadProfileConfig, SignalSelection, SimulationConfig
-from app.services.signal_catalog import TemplateSignalCatalog, input_definition, output_definition, signal_catalog_for_template
+
+# Legacy imports — these modules were deleted in Faz 5MVP-6.
+# ControllerPanel is only used by the old MainWindow (also deleted).
+# Guarded imports keep controller_panel.py importable for PySide6-skipped tests.
+try:
+    from app.core.models.quarter_car_model import QuarterCarParameters
+except ImportError:
+    from dataclasses import dataclass as _dc
+
+    @_dc(slots=True)
+    class QuarterCarParameters:  # type: ignore[no-redef]
+        body_mass: float = 300.0
+        wheel_mass: float = 40.0
+        suspension_spring: float = 15000.0
+        suspension_damper: float = 1200.0
+        tire_stiffness: float = 180000.0
+
+try:
+    from app.services.signal_catalog import (
+        TemplateSignalCatalog,
+        input_definition,
+        output_definition,
+        signal_catalog_for_template,
+    )
+except ImportError:
+    from dataclasses import dataclass as _dc2
+
+    @_dc2(frozen=True, slots=True)
+    class _StubCatalog:
+        template_id: str = "blank"
+        label: str = "Blank"
+        inputs: tuple = ()
+        outputs: tuple = ()
+
+    TemplateSignalCatalog = _StubCatalog  # type: ignore[misc]
+
+    def signal_catalog_for_template(tid: str) -> _StubCatalog:
+        return _StubCatalog(template_id=tid)
+
+    def input_definition(tid: str, sid: str | None) -> None:
+        return None
+
+    def output_definition(tid: str, sid: str) -> None:
+        return None
 from app.ui.widgets.status_widget import LiveStatusWidget
 
 

@@ -1,0 +1,1812 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: app/core/templates/**/*.py, app/core/graph/**/*.py, app/services/canvas_compiler.py, app/services/canvas_serializer.py, app/core/symbolic/equation_builder.py
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+app/
+  core/
+    graph/
+      __init__.py
+      assembler.py
+      system_graph.py
+      topology_analysis.py
+      validators.py
+    symbolic/
+      equation_builder.py
+    templates/
+      __init__.py
+      quarter_car.py
+      rc_circuit.py
+      rlc_circuit.py
+      single_mass.py
+      template_definition.py
+      two_mass.py
+  services/
+    canvas_compiler.py
+    canvas_serializer.py
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="app/core/graph/__init__.py">
+"""Graph primitives and topology services for the port-based modeling engine."""
+
+from app.core.graph.assembler import GraphAssembler
+from app.core.graph.system_graph import SystemGraph
+from app.core.graph.topology_analysis import TopologySummary
+from app.core.graph.validators import GraphValidator, ValidationMessage
+
+__all__ = [
+    "GraphAssembler",
+    "GraphValidator",
+    "SystemGraph",
+    "TopologySummary",
+    "ValidationMessage",
+]
+</file>
+
+<file path="app/core/graph/assembler.py">
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from app.core.graph.system_graph import SystemGraph
+
+
+@dataclass(slots=True)
+class AssemblyContext:
+    component_equations: list[str] = field(default_factory=list)
+    component_equation_sources: list[dict[str, object]] = field(default_factory=list)
+    node_equations: list[str] = field(default_factory=list)
+    node_equation_sources: list[dict[str, object]] = field(default_factory=list)
+    dae_equations: list[str] = field(default_factory=list)
+    dae_equation_sources: list[dict[str, object]] = field(default_factory=list)
+    algebraic_constraints: list[str] = field(default_factory=list)
+    differential_equations: list[str] = field(default_factory=list)
+    states: list[str] = field(default_factory=list)
+    parameters: dict[str, float] = field(default_factory=dict)
+
+
+class GraphAssembler:
+    def assemble(self, graph: SystemGraph) -> AssemblyContext:
+        context = AssemblyContext()
+
+        for component in graph.components.values():
+            constitutive = component.constitutive_equations()
+            dae = component.dae_equations()
+            context.component_equations.extend(constitutive)
+            context.dae_equations.extend(dae)
+            context.states.extend(component.get_states())
+            context.parameters.update(component.get_parameters())
+            context.component_equation_sources.extend(
+                {
+                    "source_type": "component",
+                    "source_id": component.id,
+                    "source_name": component.name,
+                    "origin_layer": "assembler",
+                    "domain": component.domain.name,
+                    "owner_component_id": component.id,
+                    "owner_node_id": None,
+                    "tags": ["constitutive"],
+                    "equation": equation,
+                }
+                for equation in constitutive
+            )
+            context.dae_equation_sources.extend(
+                {
+                    "source_type": "component",
+                    "source_id": component.id,
+                    "source_name": component.name,
+                    "origin_layer": "assembler",
+                    "domain": component.domain.name,
+                    "owner_component_id": component.id,
+                    "owner_node_id": None,
+                    "tags": ["dae", "constitutive"],
+                    "equation": equation,
+                }
+                for equation in dae
+            )
+
+        for node in graph.nodes.values():
+            connected_ports = [graph.get_port(port_id) for port_id in node.port_ids]
+            across_equations = node.explicit_across_equations(connected_ports)
+            context.node_equations.extend(across_equations)
+            context.node_equation_sources.extend(
+                {
+                    "source_type": "node",
+                    "source_id": node.id,
+                    "source_name": node.id,
+                    "origin_layer": "assembler",
+                    "domain": node.domain.name,
+                    "owner_component_id": None,
+                    "owner_node_id": node.id,
+                    "tags": ["across_constraint"],
+                    "equation": equation,
+                }
+                for equation in across_equations
+            )
+            through_equation = node.explicit_through_equation(connected_ports)
+            if through_equation is not None:
+                context.node_equations.append(through_equation)
+                context.node_equation_sources.append(
+                    {
+                        "source_type": "node",
+                        "source_id": node.id,
+                        "source_name": node.id,
+                        "origin_layer": "assembler",
+                        "domain": node.domain.name,
+                        "owner_component_id": None,
+                        "owner_node_id": node.id,
+                        "tags": ["through_constraint"],
+                        "equation": through_equation,
+                    }
+                )
+
+        context.algebraic_constraints = list(context.node_equations)
+        context.differential_equations = [
+            equation for equation in context.dae_equations if "d/dt" in equation
+        ]
+
+        return context
+</file>
+
+<file path="app/core/graph/system_graph.py">
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+import uuid
+
+from app.core.base.component import BaseComponent
+from app.core.base.connection import Connection
+from app.core.base.node import Node
+from app.core.base.port import Port
+
+
+@dataclass(slots=True)
+class SystemGraph:
+    components: dict[str, BaseComponent] = field(default_factory=dict)
+    connections: list[Connection] = field(default_factory=list)
+    nodes: dict[str, Node] = field(default_factory=dict)
+    probes: dict[str, object] = field(default_factory=dict)
+    selected_input_id: str | None = None
+    selected_output_id: str | None = None
+
+    def add_component(self, component: BaseComponent) -> BaseComponent:
+        self.components[component.id] = component
+        return component
+
+    def add_node(self, node: Node) -> Node:
+        self.nodes[node.id] = node
+        return node
+
+    def get_port(self, port_id: str) -> Port:
+        for component in self.components.values():
+            for port in component.ports:
+                if port.id == port_id:
+                    return port
+        raise KeyError(f"Unknown port id: {port_id}")
+
+    def connect(self, port_a_id: str, port_b_id: str, *, label: str | None = None) -> Connection:
+        port_a = self.get_port(port_a_id)
+        port_b = self.get_port(port_b_id)
+        port_a.validate_compatibility(port_b)
+
+        node_id = port_a.node_id or port_b.node_id or f"node_{uuid.uuid4().hex[:8]}"
+        node = self.nodes.get(node_id)
+        if node is None:
+            node = self.add_node(Node(id=node_id, domain=port_a.domain))
+
+        for port in (port_a, port_b):
+            port.connect_to(node.id)
+            node.attach_port(port.id)
+
+        connection = Connection(
+            id=f"conn_{uuid.uuid4().hex[:8]}",
+            port_a=port_a_id,
+            port_b=port_b_id,
+            label=label,
+        )
+        self.connections.append(connection)
+        return connection
+
+    def attach_probe(self, probe: object) -> object:
+        probe_id = getattr(probe, "id", f"probe_{uuid.uuid4().hex[:8]}")
+        self.probes[probe_id] = probe
+        return probe
+</file>
+
+<file path="app/core/graph/topology_analysis.py">
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from app.core.graph.system_graph import SystemGraph
+
+
+@dataclass(slots=True)
+class TopologySummary:
+    domain_types: set[str] = field(default_factory=set)
+    component_count: int = 0
+    node_count: int = 0
+    input_components: list[str] = field(default_factory=list)
+    output_probes: list[str] = field(default_factory=list)
+    degrees_of_freedom_hint: int = 0
+    notes: list[str] = field(default_factory=list)
+
+
+def analyze_topology(graph: SystemGraph) -> TopologySummary:
+    summary = TopologySummary()
+    summary.component_count = len(graph.components)
+    summary.node_count = len(graph.nodes)
+    summary.domain_types = {component.domain.name for component in graph.components.values()}
+    summary.input_components = [
+        component.name
+        for component in graph.components.values()
+        if component.metadata.get("role") == "source"
+    ]
+    summary.output_probes = [
+        getattr(probe, "name", probe_id)
+        for probe_id, probe in graph.probes.items()
+    ]
+    summary.degrees_of_freedom_hint = sum(
+        1 for component in graph.components.values() if "Mass" in component.__class__.__name__
+    )
+    if len(summary.domain_types) > 1:
+        summary.notes.append("Mixed-domain graph detected.")
+    return summary
+</file>
+
+<file path="app/core/graph/validators.py">
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from app.core.graph.system_graph import SystemGraph
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationMessage:
+    level: str
+    text: str
+
+
+class GraphValidator:
+    def validate(self, graph: SystemGraph) -> list[ValidationMessage]:
+        messages: list[ValidationMessage] = []
+
+        if not graph.components:
+            messages.append(ValidationMessage(level="error", text="Graph contains no components."))
+            return messages
+
+        if not graph.connections:
+            messages.append(ValidationMessage(level="error", text="Graph contains no physical connections."))
+
+        for component in graph.components.values():
+            for error in component.validate():
+                messages.append(ValidationMessage(level="error", text=error))
+
+        connected_component_ids = {
+            graph.get_port(connection.port_a).component_id for connection in graph.connections
+        } | {
+            graph.get_port(connection.port_b).component_id for connection in graph.connections
+        }
+        for component_id, component in graph.components.items():
+            if component_id not in connected_component_ids:
+                messages.append(
+                    ValidationMessage(level="warning", text=f"Component {component.name} is isolated.")
+                )
+
+        messages.extend(self._validate_source_conflicts(graph))
+        messages.extend(self._validate_probe_targets(graph))
+
+        return messages
+
+    def _validate_source_conflicts(self, graph: SystemGraph) -> list[ValidationMessage]:
+        messages: list[ValidationMessage] = []
+        sources_by_node: dict[tuple[str, str], list[str]] = {}
+        for component in graph.components.values():
+            if component.metadata.get("role") != "source":
+                continue
+            source_kind = component.metadata.get("source_kind", "displacement")
+            port = component.port("port")
+            if port.node_id is None:
+                continue
+            key = (port.node_id, source_kind)
+            sources_by_node.setdefault(key, []).append(component.name)
+
+        for (node_id, source_kind), names in sources_by_node.items():
+            if len(names) > 1:
+                messages.append(
+                    ValidationMessage(
+                        level="error",
+                        text=f"Multiple {source_kind} sources connected to node {node_id}: {', '.join(names)}",
+                    )
+                )
+        return messages
+
+    def _validate_probe_targets(self, graph: SystemGraph) -> list[ValidationMessage]:
+        messages: list[ValidationMessage] = []
+        component_ids = set(graph.components.keys())
+        for probe in graph.probes.values():
+            target_component_id = getattr(probe, "target_component_id", None)
+            reference_component_id = getattr(probe, "reference_component_id", None)
+            if target_component_id is not None and target_component_id not in component_ids:
+                messages.append(
+                    ValidationMessage(level="error", text=f"Probe {probe.id} targets missing component {target_component_id}.")
+                )
+            if reference_component_id is not None and reference_component_id not in component_ids:
+                messages.append(
+                    ValidationMessage(level="error", text=f"Probe {probe.id} references missing component {reference_component_id}.")
+                )
+        return messages
+</file>
+
+<file path="app/core/templates/__init__.py">
+"""Predefined runnable model templates for Phase 1."""
+
+from app.core.templates.quarter_car import build_quarter_car_template
+from app.core.templates.rc_circuit import build_rc_circuit_template
+from app.core.templates.rlc_circuit import build_rlc_circuit_template
+from app.core.templates.single_mass import build_single_mass_template
+from app.core.templates.template_definition import TemplateDefinition
+from app.core.templates.two_mass import build_two_mass_template
+
+__all__ = [
+    "TemplateDefinition",
+    "build_quarter_car_template",
+    "build_rc_circuit_template",
+    "build_rlc_circuit_template",
+    "build_single_mass_template",
+    "build_two_mass_template",
+]
+</file>
+
+<file path="app/core/templates/rc_circuit.py">
+from __future__ import annotations
+
+from app.core.graph.system_graph import SystemGraph
+from app.core.templates.template_definition import TemplateDefinition
+
+
+def build_rc_circuit_template() -> TemplateDefinition:
+    return TemplateDefinition(
+        id="rc_circuit",
+        name="RC Circuit",
+        graph=SystemGraph(),
+        description="Placeholder for the future predefined RC template.",
+    )
+</file>
+
+<file path="app/core/templates/rlc_circuit.py">
+from __future__ import annotations
+
+from app.core.graph.system_graph import SystemGraph
+from app.core.templates.template_definition import TemplateDefinition
+
+
+def build_rlc_circuit_template() -> TemplateDefinition:
+    return TemplateDefinition(
+        id="rlc_circuit",
+        name="RLC Circuit",
+        graph=SystemGraph(),
+        description="Placeholder for the future predefined RLC template.",
+    )
+</file>
+
+<file path="app/core/templates/single_mass.py">
+from __future__ import annotations
+
+from app.core.graph.system_graph import SystemGraph
+from app.core.models.mechanical import Damper, Mass, MechanicalGround, Spring
+from app.core.models.sources import StepForce
+from app.core.probes import BaseProbe
+from app.core.symbolic.output_kind import (
+    OutputKind,
+    QK_ACCELERATION,
+    QK_DISPLACEMENT,
+    QK_SPRING_FORCE,
+)
+from app.core.templates.template_definition import TemplateDefinition
+
+
+def build_single_mass_template() -> TemplateDefinition:
+    graph = SystemGraph()
+
+    mass = graph.add_component(Mass("mass", mass=2.0))
+    spring = graph.add_component(Spring("spring", stiffness=10.0))
+    damper = graph.add_component(Damper("damper", damping=3.0))
+    source = graph.add_component(StepForce("input_force", amplitude=1.0))
+    ground = graph.add_component(MechanicalGround("ground"))
+
+    graph.connect(mass.port("port_a").id, spring.port("port_a").id, label="mass_spring")
+    graph.connect(mass.port("port_a").id, damper.port("port_a").id, label="mass_damper")
+    graph.connect(mass.port("port_a").id, source.port("port").id, label="mass_force")
+    graph.connect(spring.port("port_b").id, ground.port("port").id, label="spring_ground")
+    graph.connect(damper.port("port_b").id, ground.port("port").id, label="damper_ground")
+    graph.connect(mass.port("reference_port").id, ground.port("port").id, label="mass_reference")
+    graph.connect(source.port("reference_port").id, ground.port("port").id, label="source_reference")
+
+    displacement_probe = graph.attach_probe(BaseProbe(
+        "mass_displacement", "Mass displacement", "displacement", mass.id,
+        output_kind=OutputKind.STATE_DIRECT, quantity_key=QK_DISPLACEMENT,
+    ))
+    graph.attach_probe(BaseProbe(
+        "mass_acceleration", "Mass acceleration", "acceleration", mass.id,
+        output_kind=OutputKind.DERIVED_DYNAMIC, quantity_key=QK_ACCELERATION,
+    ))
+    graph.attach_probe(BaseProbe(
+        "spring_force", "Spring force", "force", spring.id,
+        output_kind=OutputKind.DERIVED_ALGEBRAIC, quantity_key=QK_SPRING_FORCE,
+    ))
+
+    graph.selected_input_id = source.id
+    graph.selected_output_id = displacement_probe.id
+
+    return TemplateDefinition(
+        id="single_mass",
+        name="Single Mass-Spring-Damper",
+        graph=graph,
+        default_input_id=source.id,
+        default_output_id=displacement_probe.id,
+        suggested_plots=["time_response", "step_response", "bode", "pole_zero"],
+        description="Single mass connected to ground with spring and damper, excited by a force input.",
+        parameter_groups={"mass": [mass.id], "passive": [spring.id, damper.id], "input": [source.id]},
+        schematic_layout={
+            "mass": (220.0, 100.0),
+            "spring": (160.0, 220.0),
+            "damper": (280.0, 220.0),
+            "input_force": (80.0, 160.0),
+            "ground": (220.0, 340.0),
+        },
+    )
+</file>
+
+<file path="app/core/templates/template_definition.py">
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from app.core.graph.system_graph import SystemGraph
+
+
+@dataclass(slots=True)
+class TemplateDefinition:
+    id: str
+    name: str
+    graph: SystemGraph
+    default_input_id: str | None = None
+    default_output_id: str | None = None
+    suggested_plots: list[str] = field(default_factory=list)
+    description: str = ""
+    parameter_groups: dict[str, list[str]] = field(default_factory=dict)
+    schematic_layout: dict[str, tuple[float, float]] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+</file>
+
+<file path="app/core/templates/two_mass.py">
+from __future__ import annotations
+
+from app.core.graph.system_graph import SystemGraph
+from app.core.models.mechanical import Damper, Mass, MechanicalGround, Spring
+from app.core.models.sources import StepForce
+from app.core.probes import BaseProbe, RelativeProbe
+from app.core.symbolic.output_kind import (
+    OutputKind,
+    QK_ACCELERATION,
+    QK_DISPLACEMENT,
+    QK_RELATIVE_DISPLACEMENT,
+)
+from app.core.templates.template_definition import TemplateDefinition
+
+
+def build_two_mass_template() -> TemplateDefinition:
+    graph = SystemGraph()
+
+    mass_1 = graph.add_component(Mass("mass_1", mass=2.0, name="Mass 1"))
+    mass_2 = graph.add_component(Mass("mass_2", mass=1.0, name="Mass 2"))
+    spring_ground = graph.add_component(Spring("spring_ground", stiffness=20.0, name="Ground Spring"))
+    damper_ground = graph.add_component(Damper("damper_ground", damping=5.0, name="Ground Damper"))
+    spring_coupling = graph.add_component(Spring("spring_coupling", stiffness=8.0, name="Coupling Spring"))
+    damper_coupling = graph.add_component(Damper("damper_coupling", damping=2.0, name="Coupling Damper"))
+    source = graph.add_component(StepForce("input_force", amplitude=1.0))
+    ground = graph.add_component(MechanicalGround("ground"))
+
+    graph.connect(mass_1.port("port_a").id, spring_ground.port("port_a").id, label="m1_spring_ground")
+    graph.connect(mass_1.port("port_a").id, damper_ground.port("port_a").id, label="m1_damper_ground")
+    graph.connect(mass_1.port("port_a").id, spring_coupling.port("port_a").id, label="m1_spring_coupling")
+    graph.connect(mass_1.port("port_a").id, damper_coupling.port("port_a").id, label="m1_damper_coupling")
+    graph.connect(mass_1.port("port_a").id, source.port("port").id, label="m1_force")
+    graph.connect(spring_ground.port("port_b").id, ground.port("port").id, label="spring_ground_ref")
+    graph.connect(damper_ground.port("port_b").id, ground.port("port").id, label="damper_ground_ref")
+    graph.connect(spring_coupling.port("port_b").id, mass_2.port("port_a").id, label="coupling_to_m2")
+    graph.connect(damper_coupling.port("port_b").id, mass_2.port("port_a").id, label="damper_to_m2")
+    graph.connect(mass_1.port("reference_port").id, ground.port("port").id, label="m1_reference")
+    graph.connect(mass_2.port("reference_port").id, ground.port("port").id, label="m2_reference")
+    graph.connect(source.port("reference_port").id, ground.port("port").id, label="source_reference")
+
+    displacement_probe = graph.attach_probe(BaseProbe(
+        "mass_1_displacement", "Mass 1 displacement", "displacement", mass_1.id,
+        output_kind=OutputKind.STATE_DIRECT, quantity_key=QK_DISPLACEMENT,
+    ))
+    graph.attach_probe(BaseProbe(
+        "mass_2_displacement", "Mass 2 displacement", "displacement", mass_2.id,
+        output_kind=OutputKind.STATE_DIRECT, quantity_key=QK_DISPLACEMENT,
+    ))
+    graph.attach_probe(RelativeProbe(
+        "relative_deflection", "Relative deflection", "displacement",
+        mass_1.id, reference_component_id=mass_2.id,
+        output_kind=OutputKind.STATE_RELATIVE, quantity_key=QK_RELATIVE_DISPLACEMENT,
+    ))
+    graph.attach_probe(BaseProbe(
+        "mass_1_acceleration", "Mass 1 acceleration", "acceleration", mass_1.id,
+        output_kind=OutputKind.DERIVED_DYNAMIC, quantity_key=QK_ACCELERATION,
+    ))
+
+    graph.selected_input_id = source.id
+    graph.selected_output_id = displacement_probe.id
+
+    return TemplateDefinition(
+        id="two_mass",
+        name="Two-Mass System",
+        graph=graph,
+        default_input_id=source.id,
+        default_output_id=displacement_probe.id,
+        suggested_plots=["time_response", "step_response", "bode", "pole_zero"],
+        description="Two-mass translational template with grounded and coupling spring-damper branches.",
+        parameter_groups={
+            "masses": [mass_1.id, mass_2.id],
+            "ground_branch": [spring_ground.id, damper_ground.id],
+            "coupling_branch": [spring_coupling.id, damper_coupling.id],
+            "input": [source.id],
+        },
+        schematic_layout={
+            "mass_1": (180.0, 90.0),
+            "mass_2": (380.0, 90.0),
+            "spring_ground": (140.0, 220.0),
+            "damper_ground": (240.0, 220.0),
+            "spring_coupling": (320.0, 170.0),
+            "damper_coupling": (320.0, 260.0),
+            "input_force": (60.0, 120.0),
+            "ground": (250.0, 360.0),
+        },
+    )
+</file>
+
+<file path="app/services/canvas_serializer.py">
+"""CanvasSerializer — v2 JSON save/load for canvas layouts.
+
+Produces a stable, versioned JSON format that uses:
+  - ``type_key`` as primary component identity (not display_name)
+  - ``registry_name`` for components migrated to the registry
+  - Canvas connector names in connections (visual port names)
+  - ``schema_version`` for forward compatibility
+
+Backward compatibility
+──────────────────────
+The ``load()`` method auto-detects v1 (display_name-based, no schema_version)
+vs v2 format and handles both transparently.  The ``save()`` method always
+writes v2.
+
+Roundtrip guarantee
+───────────────────
+For any canvas state *S*:
+  ``load(save(S))`` produces a canvas state *S'* such that
+  ``compile(S') == compile(S)`` — i.e. the SystemGraph topology is identical.
+
+Port naming decision (v2 → v3 migration note)
+──────────────────────────────────────────────
+v2 stores **canvas connector names** ("positive", "negative", "R", "C", "ref")
+in the ``connections[].from.port`` / ``connections[].to.port`` fields.  This is
+the visual/UI-layer name, not the canonical core port name ("port_a", "port_b",
+"p", "flange_a").
+
+This was a deliberate choice for v2: the canvas UI still works entirely with
+visual connector names, so storing them directly avoids an extra reverse-mapping
+layer on load.  The compiler handles canvas→core resolution at compile time.
+
+**v3 should consider** one of:
+  (a) Storing canonical core port names only: ``"port": "port_a"``
+  (b) Dual fields: ``"canvas_port": "positive", "core_port": "port_a"``
+
+Option (b) is preferred — it preserves visual intent for the UI while also
+giving the compiler a pre-resolved core port, making the save file more
+self-documenting and robust against port_mapping table changes.
+
+Registry ID naming (future note)
+────────────────────────────────
+Current format: ``domain.kind`` (e.g. ``electrical.resistor``,
+``translational.spring``).  When the domain count grows, a three-level
+scheme ``domain.subdomain.kind`` may be cleaner:
+``mechanical.translational.mass``, ``mechanical.rotational.inertia``.
+Current two-level IDs are stable and will not break — the three-level
+scheme would be additive, not a rename.
+"""
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.ui.canvas.component_system import (
+        CanvasVisualComponent,
+        CanvasWireConnection,
+    )
+
+SCHEMA_VERSION = 2
+
+
+# ---------------------------------------------------------------------------
+# Save (canvas → JSON dict)
+# ---------------------------------------------------------------------------
+
+def save(
+    components: list[CanvasVisualComponent],
+    wires: list[CanvasWireConnection],
+    *,
+    viewport: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    """Serialize canvas state to a v2 JSON-safe dict.
+
+    Args:
+        components: All visual components on the canvas.
+        wires:      All wire connections.
+        viewport:   Optional viewport state (zoom, pan_x, pan_y).
+
+    Returns:
+        A JSON-serializable dict with schema_version=2.
+    """
+    comp_list: list[dict[str, Any]] = []
+    for cv in components:
+        entry: dict[str, Any] = {
+            "id": cv.component_id,
+            "type_key": cv.spec.type_key,
+            "position": {
+                "x": cv.position.x(),
+                "y": cv.position.y(),
+            },
+            "size": list(cv.size),
+            "orientation": cv.orientation.value,
+        }
+
+        # Registry metadata (only for migrated components)
+        if cv.spec.registry_name is not None:
+            entry["registry_name"] = cv.spec.registry_name
+
+        # Instance name (user-assigned label)
+        if cv.instance_name is not None:
+            entry["instance_name"] = cv.instance_name
+
+        # IO roles
+        from app.ui.canvas.component_system import ComponentIoRole
+        if cv.assigned_io_roles:
+            entry["assigned_io_roles"] = [r.value for r in cv.assigned_io_roles]
+        if cv.input_role_order is not None:
+            entry["input_role_order"] = cv.input_role_order
+        if cv.output_role_order is not None:
+            entry["output_role_order"] = cv.output_role_order
+
+        # Deletable flag (only save if non-default)
+        if not cv.deletable:
+            entry["deletable"] = False
+
+        comp_list.append(entry)
+
+    # Connections: resolve canvas port names → core port names
+    conn_list: list[dict[str, Any]] = []
+    for wire in wires:
+        conn_list.append({
+            "from": {
+                "component": wire.source_component_id,
+                "port": wire.source_connector_name,
+            },
+            "to": {
+                "component": wire.target_component_id,
+                "port": wire.target_connector_name,
+            },
+        })
+
+    result: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "components": comp_list,
+        "connections": conn_list,
+    }
+
+    if viewport is not None:
+        result["viewport"] = viewport
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Load (JSON dict → canvas objects)
+# ---------------------------------------------------------------------------
+
+def load(
+    data: dict[str, Any],
+) -> tuple[list[CanvasVisualComponent], list[CanvasWireConnection]]:
+    """Deserialize a JSON dict into canvas objects.
+
+    Handles both v1 (display_name-based) and v2 (type_key-based) formats.
+
+    Returns:
+        (components, wires) tuple ready for canvas use.
+    """
+    version = data.get("schema_version", 1)
+
+    if version == 1:
+        return _load_v1(data)
+    elif version == 2:
+        return _load_v2(data)
+    else:
+        raise ValueError(f"Unknown schema_version: {version}")
+
+
+def _load_v2(
+    data: dict[str, Any],
+) -> tuple[list[CanvasVisualComponent], list[CanvasWireConnection]]:
+    """Load v2 format (type_key-based)."""
+    from PySide6.QtCore import QPointF
+
+    from app.ui.canvas.component_system import (
+        COMPONENT_CATALOG,
+        CanvasVisualComponent,
+        CanvasWireConnection,
+        ComponentIoRole,
+        Orientation,
+    )
+
+    components: list[CanvasVisualComponent] = []
+    for cd in data.get("components", []):
+        type_key = cd["type_key"]
+        spec = COMPONENT_CATALOG.get(type_key)
+        if spec is None:
+            continue  # Skip unknown component types gracefully
+
+        roles_raw = cd.get("assigned_io_roles", [])
+        assigned_roles = tuple(ComponentIoRole(v) for v in roles_raw)
+
+        components.append(CanvasVisualComponent(
+            spec=spec,
+            component_id=cd["id"],
+            instance_name=cd.get("instance_name"),
+            position=QPointF(float(cd["position"]["x"]), float(cd["position"]["y"])),
+            size=tuple(cd["size"]),
+            deletable=cd.get("deletable", True),
+            orientation=Orientation(cd.get("orientation", 0)),
+            assigned_io_roles=assigned_roles,
+            input_role_order=cd.get("input_role_order"),
+            output_role_order=cd.get("output_role_order"),
+        ))
+
+    wires: list[CanvasWireConnection] = []
+    for wd in data.get("connections", []):
+        wires.append(CanvasWireConnection(
+            source_component_id=wd["from"]["component"],
+            source_connector_name=wd["from"]["port"],
+            target_component_id=wd["to"]["component"],
+            target_connector_name=wd["to"]["port"],
+        ))
+
+    return components, wires
+
+
+def _load_v1(
+    data: dict[str, Any],
+) -> tuple[list[CanvasVisualComponent], list[CanvasWireConnection]]:
+    """Load v1 format (display_name-based, legacy model_canvas.py format).
+
+    Converts the old format to the same output objects as v2.
+    """
+    from PySide6.QtCore import QPointF
+
+    from app.ui.canvas.component_system import (
+        CanvasVisualComponent,
+        CanvasWireConnection,
+        ComponentIoRole,
+        Orientation,
+        component_spec_for_display_name,
+    )
+
+    components: list[CanvasVisualComponent] = []
+    for cd in data.get("components", []):
+        role_values = cd.get("assigned_io_roles")
+        if isinstance(role_values, list):
+            assigned_roles = tuple(ComponentIoRole(v) for v in role_values)
+        else:
+            role_value = cd.get("assigned_io_role")
+            assigned_roles = () if role_value is None else (ComponentIoRole(role_value),)
+
+        components.append(CanvasVisualComponent(
+            spec=component_spec_for_display_name(str(cd["display_name"])),
+            component_id=str(cd["component_id"]),
+            instance_name=cd.get("instance_name"),
+            position=QPointF(float(cd["position"][0]), float(cd["position"][1])),
+            size=(float(cd["size"][0]), float(cd["size"][1])),
+            deletable=bool(cd["deletable"]),
+            orientation=Orientation(int(cd["orientation"])),
+            assigned_io_roles=assigned_roles,
+            input_role_order=cd.get("input_role_order"),
+            output_role_order=cd.get("output_role_order"),
+        ))
+
+    wires: list[CanvasWireConnection] = []
+    for wd in data.get("wires", []):
+        wires.append(CanvasWireConnection(
+            source_component_id=str(wd["source_component_id"]),
+            source_connector_name=str(wd["source_connector_name"]),
+            target_component_id=str(wd["target_component_id"]),
+            target_connector_name=str(wd["target_connector_name"]),
+        ))
+
+    return components, wires
+
+
+# ---------------------------------------------------------------------------
+# Convenience: JSON string I/O
+# ---------------------------------------------------------------------------
+
+def save_json(
+    components: list[CanvasVisualComponent],
+    wires: list[CanvasWireConnection],
+    *,
+    viewport: dict[str, float] | None = None,
+    indent: int = 2,
+) -> str:
+    """Serialize canvas state to a JSON string."""
+    return json.dumps(save(components, wires, viewport=viewport), indent=indent)
+
+
+def load_json(
+    json_str: str,
+) -> tuple[list[CanvasVisualComponent], list[CanvasWireConnection]]:
+    """Deserialize a JSON string into canvas objects."""
+    return load(json.loads(json_str))
+</file>
+
+<file path="app/core/symbolic/equation_builder.py">
+from __future__ import annotations
+
+from app.core.graph.assembler import GraphAssembler
+from app.core.graph.system_graph import SystemGraph
+from app.core.symbolic.structured_equation import EquationRecord
+from app.core.symbolic.symbolic_system import SymbolicSystem
+from app.core.symbolic.sympy_adapter import SympyAdapter
+
+
+class EquationBuilder:
+    """Builds a unified symbolic system from graph + assembler outputs."""
+
+    def __init__(self, assembler: GraphAssembler | None = None) -> None:
+        self.assembler = assembler or GraphAssembler()
+        self.sympy_adapter = SympyAdapter()
+
+    def build(self, graph: SystemGraph) -> SymbolicSystem:
+        assembly = self.assembler.assemble(graph)
+
+        input_variables: list[str] = []
+        for component in graph.components.values():
+            if component.metadata.get("role") == "source":
+                input_variables.append(f"u_{component.id}")
+
+        output_definitions = {
+            probe_id: probe.measurement_equation()
+            for probe_id, probe in graph.probes.items()
+            if hasattr(probe, "measurement_equation")
+        }
+
+        parameter_names = set(assembly.parameters.keys())
+        component_records = self._build_component_records(graph)
+        node_records = self._build_node_records(graph)
+        output_records = self._build_output_records(graph)
+        source_lookup = self._build_source_lookup(assembly)
+        equation_records = self._build_records(
+            assembly.component_equations + assembly.node_equations,
+            "equation",
+            parameter_names,
+            component_records,
+            source_lookup,
+        )
+        dae_records = self._build_records(
+            assembly.dae_equations + assembly.node_equations,
+            "dae",
+            parameter_names,
+            component_records,
+            source_lookup,
+        )
+        differential_records = self._build_records(
+            assembly.differential_equations,
+            "differential",
+            parameter_names,
+            component_records,
+            source_lookup,
+        )
+        algebraic_records = self._build_records(
+            assembly.algebraic_constraints,
+            "algebraic",
+            parameter_names,
+            component_records,
+            source_lookup,
+        )
+        variable_registry = self._build_variable_registry(
+            graph=graph,
+            state_variables=assembly.states,
+            input_variables=input_variables,
+            parameters=assembly.parameters,
+        )
+
+        return SymbolicSystem(
+            all_equations=assembly.component_equations + assembly.node_equations,
+            dae_equations=assembly.dae_equations + assembly.node_equations,
+            differential_equations=assembly.differential_equations,
+            algebraic_constraints=assembly.algebraic_constraints,
+            equation_records=equation_records,
+            dae_equation_records=dae_records,
+            differential_records=differential_records,
+            algebraic_records=algebraic_records,
+            state_variables=assembly.states,
+            input_variables=input_variables,
+            output_definitions=output_definitions,
+            parameters=assembly.parameters,
+            variable_registry=variable_registry,
+            metadata={
+                "component_count": len(graph.components),
+                "node_count": len(graph.nodes),
+                "probe_count": len(graph.probes),
+                "component_records": component_records,
+                "node_records": node_records,
+                "output_records": output_records,
+                "derivative_links": {
+                    variable_id: record["derivative_id"]
+                    for variable_id, record in variable_registry.items()
+                    if record.get("kind") == "state" and record.get("derivative_id") is not None
+                },
+                "sympy_available": self.sympy_adapter.available,
+            },
+        )
+
+    def _build_records(
+        self,
+        equations: list[str],
+        equation_type: str,
+        parameter_names: set[str],
+        component_records: dict[str, dict[str, object]],
+        source_lookup: dict[str, dict[str, object]],
+    ) -> list[EquationRecord]:
+        records: list[EquationRecord] = []
+        for equation_text in equations:
+            lhs_text, rhs_text, sympy_expression = self.sympy_adapter.parse_equation(equation_text)
+            involved_variables = self.sympy_adapter.extract_tokens(f"{lhs_text} {rhs_text}")
+            derivative_variables = self.sympy_adapter.extract_derivatives(equation_text)
+            involved_parameters = [token for token in involved_variables if token in parameter_names]
+            for component_id, record in component_records.items():
+                if component_id in equation_text:
+                    involved_parameters.extend(record["parameters"].keys())
+            records.append(
+                EquationRecord(
+                    display_text=equation_text,
+                    lhs_text=lhs_text,
+                    rhs_text=rhs_text,
+                    equation_type=equation_type,
+                    sympy_expression=sympy_expression,
+                    involved_variables=involved_variables,
+                    involved_parameters=sorted(set(involved_parameters)),
+                    derivative_variables=derivative_variables,
+                    metadata=dict(source_lookup.get(equation_text, {})),
+                )
+            )
+        return records
+
+    def _build_variable_registry(
+        self,
+        *,
+        graph: SystemGraph,
+        state_variables: list[str],
+        input_variables: list[str],
+        parameters: dict[str, float],
+    ) -> dict[str, object]:
+        registry: dict[str, object] = {}
+        for variable in state_variables:
+            derivative_name = f"ddt_{variable}" if variable.startswith(("x_", "v_")) else None
+            registry[variable] = {
+                "id": variable,
+                "kind": "state",
+                "name": variable,
+                "derivative_id": derivative_name,
+            }
+            if derivative_name is not None:
+                registry[derivative_name] = {
+                    "id": derivative_name,
+                    "kind": "derivative",
+                    "name": derivative_name,
+                    "base_variable_id": variable,
+                }
+        for variable in input_variables:
+            registry[variable] = {"id": variable, "kind": "input", "name": variable}
+        for parameter_name, value in parameters.items():
+            registry[parameter_name] = {
+                "id": parameter_name,
+                "kind": "parameter",
+                "name": parameter_name,
+                "value": value,
+            }
+        for component in graph.components.values():
+            for port in component.ports:
+                if port.across_var is not None:
+                    registry[port.across_var.name] = {
+                        "id": port.across_var.name,
+                        "kind": port.across_var.kind,
+                        "name": port.across_var.name,
+                        "component_id": component.id,
+                        "port_id": port.id,
+                        "domain": port.domain.name,
+                    }
+                if port.through_var is not None:
+                    registry[port.through_var.name] = {
+                        "id": port.through_var.name,
+                        "kind": port.through_var.kind,
+                        "name": port.through_var.name,
+                        "component_id": component.id,
+                        "port_id": port.id,
+                        "domain": port.domain.name,
+                    }
+        return registry
+
+    def _build_component_records(self, graph: SystemGraph) -> dict[str, dict[str, object]]:
+        records: dict[str, dict[str, object]] = {}
+        for component_id, component in graph.components.items():
+            # Faz 4d-2c — Polymorphic state-contribution metadata.
+            # We snapshot get_state_contribution() into the record so downstream
+            # consumers (DAEReducer, future runtime backends) can decide whether
+            # this component owns DoFs without resorting to string checks like
+            # `record["type"] in {"Mass", "Wheel"}`. Components that override
+            # get_state_contribution() to return None (dampers, grounds, probes)
+            # are recorded with dof_count=0 and state_kind=None — they
+            # contribute no integration state.
+            try:
+                state_contribution = component.get_state_contribution()
+            except (AttributeError, NotImplementedError):
+                state_contribution = None
+            if state_contribution is None:
+                state_contribution_record: dict[str, object] = {
+                    "dof_count": 0,
+                    "state_kind": None,
+                    "stores_inertial_energy": False,
+                    "stores_potential_energy": False,
+                    "owning_port_name": None,
+                }
+            else:
+                state_contribution_record = {
+                    "dof_count": state_contribution.dof_count,
+                    "state_kind": state_contribution.state_kind,
+                    "stores_inertial_energy": state_contribution.stores_inertial_energy,
+                    "stores_potential_energy": state_contribution.stores_potential_energy,
+                    "owning_port_name": state_contribution.owning_port_name,
+                }
+            records[component_id] = {
+                "id": component_id,
+                "type": component.__class__.__name__,
+                "name": component.name,
+                "parameters": dict(component.parameters),
+                "metadata": dict(component.metadata),
+                "port_nodes": {port.name: port.node_id for port in component.ports},
+                "port_variables": {
+                    port.name: {
+                        "across": port.across_var.name if port.across_var is not None else None,
+                        "through": port.through_var.name if port.through_var is not None else None,
+                    }
+                    for port in component.ports
+                },
+                "state_contribution": state_contribution_record,
+            }
+        return records
+
+    def _build_node_records(self, graph: SystemGraph) -> dict[str, dict[str, object]]:
+        return {
+            node_id: {"id": node_id, "domain": node.domain.name, "ports": list(node.port_ids)}
+            for node_id, node in graph.nodes.items()
+        }
+
+    def _build_output_records(self, graph: SystemGraph) -> dict[str, dict[str, object]]:
+        records: dict[str, dict[str, object]] = {}
+        for probe_id, probe in graph.probes.items():
+            records[probe_id] = {
+                "id": probe_id,
+                "name": getattr(probe, "name", probe_id),
+                "quantity": getattr(probe, "quantity", None),
+                "target_component_id": getattr(probe, "target_component_id", None),
+                "reference_component_id": getattr(probe, "reference_component_id", None),
+                "measurement_equation": probe.measurement_equation() if hasattr(probe, "measurement_equation") else "",
+            }
+        return records
+
+    def _build_source_lookup(self, assembly) -> dict[str, dict[str, object]]:
+        lookup: dict[str, dict[str, object]] = {}
+        for source_record in assembly.component_equation_sources + assembly.node_equation_sources + assembly.dae_equation_sources:
+            lookup[source_record["equation"]] = {
+                "source_type": source_record["source_type"],
+                "source_id": source_record["source_id"],
+                "source_name": source_record["source_name"],
+                "origin_layer": source_record.get("origin_layer", "assembler"),
+                "domain": source_record["domain"],
+                "owner_component_id": source_record.get("owner_component_id"),
+                "owner_node_id": source_record.get("owner_node_id"),
+                "tags": list(source_record["tags"]),
+            }
+        return lookup
+</file>
+
+<file path="app/core/templates/quarter_car.py">
+from __future__ import annotations
+
+from app.core.graph.system_graph import SystemGraph
+from app.core.models.mechanical import Damper, Mass, MechanicalGround, Spring, Wheel
+from app.core.models.sources import RandomRoad, StepForce
+from app.core.probes import BaseProbe, RelativeProbe
+from app.core.symbolic.output_kind import (
+    OutputKind,
+    QK_ACCELERATION,
+    QK_DISPLACEMENT,
+    QK_RELATIVE_DISPLACEMENT,
+    QK_SPRING_FORCE,
+)
+from app.core.templates.template_definition import TemplateDefinition
+
+
+def build_quarter_car_template() -> TemplateDefinition:
+    """Quarter-car suspension template.
+
+    Faz 4j-1 -- tire_stiffness Spring removed. The tire-road coupling
+    now flows through Wheel.road_contact_port directly, with the wheel's
+    own contact_stiffness/contact_damping playing the role the deleted
+    Spring used to play. Wheel.contact_stiffness=180000.0 and
+    contact_damping=0.0 are explicitly set so reduced ODE matrices stay
+    bit-for-bit identical to the pre-4j-1 topology (Faz 4f-1's legacy
+    DAEReducer Wheel branch and Faz 4f-1.5's polymorphic
+    Wheel.contribute_stiffness / contribute_damping are what make the
+    two topologies equivalent).
+
+    QuarterCarParameters.tire_stiffness still exists as the user-facing
+    knob and is now routed to wheel_mass.contact_stiffness in the
+    symbolic backends -- no breaking API change for users.
+    """
+    graph = SystemGraph()
+
+    body_mass = graph.add_component(Mass("body_mass", mass=300.0, name="Body Mass"))
+    # Faz 4j-1 -- Wheel now carries tire-contact dynamics directly via its
+    # road_contact_port; explicit contact_stiffness/contact_damping match
+    # the values the removed tire_stiffness Spring used (180000.0 / 0.0)
+    # so simulation outputs stay bit-for-bit identical.
+    wheel_mass = graph.add_component(Wheel(
+        "wheel_mass", mass=40.0, name="Wheel / Unsprung Mass",
+        contact_stiffness=180000.0, contact_damping=0.0,
+    ))
+    suspension_spring = graph.add_component(Spring("suspension_spring", stiffness=15000.0))
+    suspension_damper = graph.add_component(Damper("suspension_damper", damping=1200.0))
+    road = graph.add_component(
+        RandomRoad(
+            "road_source",
+            amplitude=0.03,
+            roughness=0.35,
+            seed=7,
+            vehicle_speed=6.0,
+            dt=0.01,
+            duration=15.0,
+        )
+    )
+    body_force = graph.add_component(
+        StepForce(
+            "body_force",
+            amplitude=0.0,
+            start_time=0.0,
+            name="Body Force Source",
+        )
+    )
+    ground = graph.add_component(MechanicalGround("ground"))
+
+    graph.connect(body_mass.port("port_a").id, suspension_spring.port("port_a").id, label="body_to_spring")
+    graph.connect(body_mass.port("port_a").id, suspension_damper.port("port_a").id, label="body_to_damper")
+    graph.connect(wheel_mass.port("port_a").id, suspension_spring.port("port_b").id, label="wheel_to_spring")
+    graph.connect(wheel_mass.port("port_a").id, suspension_damper.port("port_b").id, label="wheel_to_damper")
+    # Faz 4j-1 -- Wheel.road_contact_port replaces the tire_stiffness Spring
+    # branch (was: wheel.port_a -> tire_stiffness.port_a -> tire_stiffness.port_b -> road.port).
+    graph.connect(wheel_mass.port("road_contact_port").id, road.port("port").id, label="wheel_to_road")
+    graph.connect(body_mass.port("reference_port").id, ground.port("port").id, label="body_reference")
+    graph.connect(wheel_mass.port("reference_port").id, ground.port("port").id, label="wheel_reference")
+    graph.connect(road.port("reference_port").id, ground.port("port").id, label="road_reference")
+    graph.connect(body_mass.port("port_a").id, body_force.port("port").id, label="body_force_input")
+    graph.connect(body_force.port("reference_port").id, wheel_mass.port("port_a").id, label="body_force_reference")
+
+    body_probe = graph.attach_probe(BaseProbe(
+        "body_displacement", "Body displacement", "displacement", body_mass.id,
+        output_kind=OutputKind.STATE_DIRECT, quantity_key=QK_DISPLACEMENT,
+    ))
+    graph.attach_probe(BaseProbe(
+        "wheel_displacement", "Wheel displacement", "displacement", wheel_mass.id,
+        output_kind=OutputKind.STATE_DIRECT, quantity_key=QK_DISPLACEMENT,
+    ))
+    graph.attach_probe(BaseProbe(
+        "body_acceleration", "Body acceleration", "acceleration", body_mass.id,
+        output_kind=OutputKind.DERIVED_DYNAMIC, quantity_key=QK_ACCELERATION,
+    ))
+    graph.attach_probe(BaseProbe(
+        "suspension_force", "Suspension force", "force", suspension_spring.id,
+        output_kind=OutputKind.DERIVED_ALGEBRAIC, quantity_key=QK_SPRING_FORCE,
+    ))
+    graph.attach_probe(RelativeProbe(
+        id="suspension_deflection",
+        name="Suspension deflection",
+        quantity="displacement",
+        target_component_id=body_mass.id,
+        reference_component_id=wheel_mass.id,
+        output_kind=OutputKind.STATE_RELATIVE,
+        quantity_key=QK_RELATIVE_DISPLACEMENT,
+    ))
+    graph.attach_probe(RelativeProbe(
+        id="tire_deflection",
+        name="Tire deflection",
+        quantity="displacement",
+        target_component_id=wheel_mass.id,
+        reference_component_id=road.id,
+        # Intent: STATE_RELATIVE, but unsupported until D-feedthrough is handled
+        output_kind=OutputKind.STATE_RELATIVE,
+        quantity_key=QK_RELATIVE_DISPLACEMENT,
+    ))
+
+    graph.selected_input_id = road.id
+    graph.selected_output_id = body_probe.id
+
+    return TemplateDefinition(
+        id="quarter_car",
+        name="Quarter-Car Suspension",
+        graph=graph,
+        default_input_id=road.id,
+        default_output_id=body_probe.id,
+        suggested_plots=["time_response", "step_response", "bode", "pole_zero"],
+        description="Ready-made quarter-car suspension template built from reusable graph components.",
+        parameter_groups={
+            "masses": [body_mass.id, wheel_mass.id],
+            "suspension": [suspension_spring.id, suspension_damper.id],
+            "road": [road.id],
+            "inputs": [body_force.id],
+        },
+        schematic_layout={
+            "body_mass": (250.0, 90.0),
+            "suspension_spring": (180.0, 190.0),
+            "suspension_damper": (320.0, 190.0),
+            "body_force": (70.0, 120.0),
+            "wheel_mass": (250.0, 330.0),
+            # Faz 4j-1 -- tire_stiffness coordinate removed; the wheel's
+            # road_contact_port is rendered as part of the wheel itself,
+            # not a separate component.
+            "road_source": (250.0, 455.0),
+            "ground": (250.0, 545.0),
+        },
+        warnings=[
+            "Phase 1.5 idea: allow limited topology edits on top of this template before full free-form editing."
+        ],
+    )
+</file>
+
+<file path="app/services/canvas_compiler.py">
+"""CanvasCompiler — bridges canvas drawing to SystemGraph.
+
+Converts a list of ``CanvasVisualComponent`` + ``CanvasWireConnection``
+objects (the UI layer's representation of a user-drawn diagram) into a
+fully-assembled ``SystemGraph`` that the symbolic/numeric pipeline can
+simulate directly.
+
+Design decisions
+────────────────
+Port mapping
+    Each canvas component type exposes named connector ports ("top",
+    "bottom", "R", "C", "ref", "output").  These are *visual* names and do
+    not always have a 1-to-1 relationship with the core port names
+    ("port_a", "port_b", "reference_port", "port").  The table
+    ``_CANVAS_TO_CORE_PORT`` captures the authoritative mapping derived
+    from the template source of truth (``model_canvas.py`` wire lists vs.
+    the core template builders in ``app/core/templates/``).
+
+    Notably, ``mass.top`` and ``mass.bottom`` *both* map to ``port_a``
+    because a mass has a single DOF node that multiple elements can
+    attach to from above or below.  The reference inertial port is
+    handled implicitly (see below).
+
+Implicit reference connections
+    The ``reference_port`` of mass, wheel, and signal sources is never
+    drawn as an explicit wire in the canvas — it is always the inertial
+    ground.  The compiler discovers the ground node (the ``port`` of the
+    ``mechanical_reference`` component, or creates one if absent) and
+    unions every such implicit reference with it.
+
+Union-find topology
+    All port IDs (``"component_id.port_name"``) are put into a
+    union-find structure.  Both explicit wires and implicit reference
+    connections call ``union()``.  After all unions, each equivalence
+    class becomes one ``Node`` in the ``SystemGraph``.
+
+Node assembly
+    Nodes and port ``node_id`` fields are set directly — we bypass
+    ``SystemGraph.connect()`` (which has a subtle limitation when both
+    ports already carry different node IDs) and build the Connection list
+    manually.
+
+Probes
+    Probes are attached based on ``assigned_io_roles`` on each canvas
+    component.  Components with ``OUTPUT`` role get a displacement probe
+    (or spring-force probe for spring/tire).  The first output component
+    becomes ``graph.selected_output_id``.  The first input component
+    becomes ``graph.selected_input_id``.
+"""
+from __future__ import annotations
+
+import uuid
+from typing import TYPE_CHECKING
+
+from app.core.base.connection import Connection
+from app.core.base.domain import MECHANICAL_TRANSLATIONAL_DOMAIN
+from app.core.base.node import Node
+from app.core.graph.system_graph import SystemGraph
+from app.core.models.mechanical import MechanicalGround
+from app.core.probes import BaseProbe
+from app.core.symbolic.output_kind import (
+    OutputKind,
+    QK_ACCELERATION,
+    QK_DISPLACEMENT,
+    QK_SPRING_FORCE,
+)
+
+if TYPE_CHECKING:
+    from app.core.base.component import BaseComponent
+    from app.ui.canvas.component_system import CanvasVisualComponent, CanvasWireConnection
+
+
+# ---------------------------------------------------------------------------
+# Canvas connector name → core port name, keyed by component type_key.
+#
+# Derivation: cross-reference model_canvas.py template wire lists with
+# the corresponding core template builders (quarter_car.py, single_mass.py,
+# two_mass.py).  The mapping is stable across all three templates.
+#
+# Notes:
+#   • mass.top and mass.bottom both map to "port_a" — the mass has a single
+#     DOF port that elements connect to from either direction.
+#   • wheel.top and wheel.bottom similarly both map to "port_a".
+#   • reference_port connections are handled implicitly (see _IMPLICIT_REF_TYPES).
+# ---------------------------------------------------------------------------
+_CANVAS_TO_CORE_PORT: dict[str, dict[str, str]] = {
+    "mass": {
+        "top":    "port_a",
+        "bottom": "port_a",
+    },
+    "wheel": {
+        "top":    "port_a",
+        "bottom": "port_a",
+    },
+    "translational_spring": {
+        "R": "port_a",
+        "C": "port_b",
+    },
+    "translational_damper": {
+        "R": "port_a",
+        "C": "port_b",
+    },
+    "tire_stiffness": {
+        "R": "port_a",
+        "C": "port_b",
+    },
+    "mechanical_reference": {
+        "ref": "port",
+    },
+    "mechanical_random_reference": {
+        "output": "port",
+    },
+    "ideal_force_source": {
+        "R": "port",
+        "C": "reference_port",
+    },
+}
+
+# Component types whose reference_port must be implicitly connected to ground.
+# These components' canvas representations have no wire for the reference —
+# the inertial ground connection is architectural, not user-drawn.
+_IMPLICIT_REF_TYPES: frozenset[str] = frozenset({
+    "mass",
+    "wheel",
+    "mechanical_random_reference",
+})
+
+# Implicit ground node ID used when no mechanical_reference component exists.
+_IMPLICIT_GROUND_ID = "_implicit_ground"
+
+
+# ---------------------------------------------------------------------------
+# Union-Find (path-compressed, rank-based)
+# ---------------------------------------------------------------------------
+
+class _UnionFind:
+    """Disjoint-set structure for grouping port IDs into shared nodes."""
+
+    def __init__(self) -> None:
+        self._parent: dict[str, str] = {}
+        self._rank:   dict[str, int] = {}
+
+    def register(self, key: str) -> None:
+        if key not in self._parent:
+            self._parent[key] = key
+            self._rank[key] = 0
+
+    def find(self, key: str) -> str:
+        self.register(key)
+        root = key
+        while self._parent[root] != root:
+            root = self._parent[root]
+        # Path compression
+        cur = key
+        while cur != root:
+            nxt = self._parent[cur]
+            self._parent[cur] = root
+            cur = nxt
+        return root
+
+    def union(self, a: str, b: str) -> None:
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return
+        # Union by rank
+        if self._rank[ra] < self._rank[rb]:
+            ra, rb = rb, ra
+        self._parent[rb] = ra
+        if self._rank[ra] == self._rank[rb]:
+            self._rank[ra] += 1
+
+    def groups(self) -> dict[str, list[str]]:
+        """Return a mapping from root → list of all members in that group."""
+        result: dict[str, list[str]] = {}
+        for key in self._parent:
+            root = self.find(key)
+            result.setdefault(root, []).append(key)
+        return result
+
+
+# ---------------------------------------------------------------------------
+# CanvasCompiler
+# ---------------------------------------------------------------------------
+
+class CanvasCompiler:
+    """Compiles a canvas drawing into a ``SystemGraph``.
+
+    Usage::
+
+        compiler = CanvasCompiler()
+        graph = compiler.compile(canvas.components, canvas.wires)
+        # graph is ready for EquationBuilder / QuarterCarNumericBackend / etc.
+
+    The compiler is stateless — each call to ``compile()`` returns a fresh
+    independent graph.  After ``compile()`` returns, ``self.errors`` contains
+    any warnings/errors collected during that compilation.
+    """
+
+    def __init__(self) -> None:
+        self._errors: list[str] = []
+
+    @property
+    def errors(self) -> list[str]:
+        """Errors collected during the most recent ``compile()`` call."""
+        return list(self._errors)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def compile(
+        self,
+        components: list[CanvasVisualComponent],
+        wires: list[CanvasWireConnection],
+    ) -> SystemGraph:
+        """Build a ``SystemGraph`` from a canvas layout.
+
+        Args:
+            components: All visual components on the canvas.
+            wires:      All wire connections between connector ports.
+
+        Returns:
+            A fully assembled ``SystemGraph`` with nodes, connections,
+            and probes attached.
+        """
+        self._errors = []  # reset for each compile call
+
+        # ── 1. Create core components ──────────────────────────────────
+        graph = SystemGraph()
+        type_map:    dict[str, str]  = {}   # component_id → type_key
+        input_ids:   list[str]       = []
+        output_ids:  list[str]       = []
+        ground_port_id: str | None   = None
+
+        for cv in components:
+            type_key = cv.spec.type_key
+            comp_id  = cv.component_id
+            type_map[comp_id] = type_key
+
+            core = self._create_core_component(comp_id, type_key)
+            if core is not None:
+                graph.add_component(core)
+
+            if type_key == "mechanical_reference":
+                ground_port_id = f"{comp_id}.port"
+            elif type_key == "electrical_reference":
+                # Electrical ground — resolve via port_mapping
+                ground_port_id = f"{comp_id}.p"
+
+            from app.ui.canvas.component_system import ComponentIoRole
+            for role in cv.assigned_io_roles:
+                if role == ComponentIoRole.INPUT:
+                    input_ids.append(comp_id)
+                elif role == ComponentIoRole.OUTPUT:
+                    output_ids.append(comp_id)
+
+        # ── 2. Ensure a ground node exists ────────────────────────────
+        if ground_port_id is None:
+            # No mechanical_reference on canvas → create an implicit one
+            gnd = MechanicalGround(_IMPLICIT_GROUND_ID)
+            graph.add_component(gnd)
+            type_map[_IMPLICIT_GROUND_ID] = "mechanical_reference"
+            ground_port_id = f"{_IMPLICIT_GROUND_ID}.port"
+
+        # ── 3. Build union-find from wires + implicit refs ────────────
+        uf = _UnionFind()
+
+        # Register every port in the graph
+        for comp in graph.components.values():
+            for port in comp.ports:
+                uf.register(port.id)
+
+        # Process explicit wire connections
+        for wire in wires:
+            src = self._resolve_port_id(wire.source_component_id,
+                                         type_map, wire.source_connector_name)
+            tgt = self._resolve_port_id(wire.target_component_id,
+                                         type_map, wire.target_connector_name)
+            if src is not None and tgt is not None and \
+               src in uf._parent and tgt in uf._parent:
+                uf.union(src, tgt)
+
+        # Process implicit reference_port → ground connections
+        for comp_id, type_key in type_map.items():
+            if type_key in _IMPLICIT_REF_TYPES:
+                ref_id = f"{comp_id}.reference_port"
+                if ref_id in uf._parent:
+                    uf.union(ref_id, ground_port_id)
+
+        # ── 4. Assign nodes to port groups ────────────────────────────
+        groups   = uf.groups()
+        gnd_root = uf.find(ground_port_id)
+
+        root_to_node_id: dict[str, str] = {}
+        counter = 0
+        for root in groups:
+            if root == gnd_root:
+                root_to_node_id[root] = "node_ground"
+            else:
+                root_to_node_id[root] = f"node_{counter}"
+                counter += 1
+
+        for root, port_ids in groups.items():
+            node_id = root_to_node_id[root]
+            node = Node(id=node_id, domain=MECHANICAL_TRANSLATIONAL_DOMAIN)
+            graph.nodes[node_id] = node
+            for port_id in port_ids:
+                try:
+                    port = graph.get_port(port_id)
+                    port.connect_to(node_id)
+                    node.attach_port(port_id)
+                except KeyError:
+                    pass  # Port not in graph (unknown component type — skip)
+
+        # ── 5. Register explicit wire connections ─────────────────────
+        for wire in wires:
+            src = self._resolve_port_id(wire.source_component_id,
+                                         type_map, wire.source_connector_name)
+            tgt = self._resolve_port_id(wire.target_component_id,
+                                         type_map, wire.target_connector_name)
+            if src is None or tgt is None:
+                continue
+            conn = Connection(
+                id=f"conn_{uuid.uuid4().hex[:8]}",
+                port_a=src,
+                port_b=tgt,
+                label=(
+                    f"{wire.source_component_id}.{wire.source_connector_name}"
+                    f"→{wire.target_component_id}.{wire.target_connector_name}"
+                ),
+            )
+            graph.connections.append(conn)
+
+        # ── 6. Attach probes and set I/O selection ────────────────────
+        self._attach_probes(graph, components, type_map, input_ids, output_ids)
+
+        return graph
+
+    # ------------------------------------------------------------------
+    # Component factory
+    # ------------------------------------------------------------------
+
+    def _create_core_component(
+        self,
+        comp_id: str,
+        type_key: str,
+    ) -> BaseComponent | None:
+        """Create a core component via registry (preferred) or legacy factory.
+
+        Resolution order:
+          1. spec.registry_name is set → use ComponentRegistry to create
+          2. spec.core_factory is set  → use legacy factory callable
+          3. Neither                   → return None
+        """
+        from app.ui.canvas.component_system import COMPONENT_CATALOG
+        spec = COMPONENT_CATALOG.get(type_key)
+        if spec is None:
+            return None
+
+        # --- Registry path (Phase 6) ---
+        if spec.registry_name is not None:
+            from app.core.registry import registry
+            entry = registry.get(spec.registry_name)
+            if entry is None:
+                self._errors.append(
+                    f"Component '{comp_id}': registry_name '{spec.registry_name}' "
+                    f"not found in ComponentRegistry"
+                )
+                return None
+            return entry.create(comp_id)
+
+        # --- Legacy path ---
+        if spec.core_factory is not None:
+            return spec.core_factory(comp_id)
+        return None
+
+    # ------------------------------------------------------------------
+    # Port resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_port_id(
+        self,
+        comp_id: str,
+        type_map: dict[str, str],
+        canvas_connector_name: str,
+    ) -> str | None:
+        """Return the core port ID for a canvas connector, or None.
+
+        Resolution order:
+          1. spec.registry_name is set → spec.port_mapping MUST be present
+             (incomplete registry metadata is an explicit error)
+          2. No registry_name → legacy _CANVAS_TO_CORE_PORT fallback
+        """
+        from app.ui.canvas.component_system import COMPONENT_CATALOG
+        type_key = type_map.get(comp_id, "")
+        spec = COMPONENT_CATALOG.get(type_key)
+
+        if spec is not None and spec.registry_name is not None:
+            # --- Registry path: port_mapping is required ---
+            if not spec.port_mapping:
+                self._errors.append(
+                    f"Component '{comp_id}' (type '{type_key}'): "
+                    f"registry_name='{spec.registry_name}' is set but "
+                    f"port_mapping is empty — incomplete registry metadata"
+                )
+                return None
+            port_name = spec.port_mapping.get(canvas_connector_name)
+            if port_name is None:
+                self._errors.append(
+                    f"Component '{comp_id}' (type '{type_key}'): "
+                    f"canvas port '{canvas_connector_name}' not found in "
+                    f"port_mapping {list(spec.port_mapping.keys())}"
+                )
+                return None
+            return f"{comp_id}.{port_name}"
+
+        # --- Legacy path ---
+        port_name = _CANVAS_TO_CORE_PORT.get(type_key, {}).get(canvas_connector_name)
+        if port_name is None:
+            return None
+        return f"{comp_id}.{port_name}"
+
+    # ------------------------------------------------------------------
+    # Probe attachment
+    # ------------------------------------------------------------------
+
+    def _attach_probes(
+        self,
+        graph: SystemGraph,
+        components: list[CanvasVisualComponent],
+        type_map: dict[str, str],
+        input_ids:  list[str],
+        output_ids: list[str],
+    ) -> None:
+        """Attach probes based on IO roles and set graph.selected_input/output_id."""
+        if input_ids:
+            graph.selected_input_id = input_ids[0]
+
+        first_probe_id: str | None = None
+
+        for comp_id in output_ids:
+            type_key = type_map.get(comp_id, "")
+            probe: BaseProbe | None = None
+
+            if type_key in ("mass", "wheel"):
+                probe = BaseProbe(
+                    id=f"probe_{comp_id}_displacement",
+                    name=f"{comp_id} displacement",
+                    quantity="displacement",
+                    target_component_id=comp_id,
+                    output_kind=OutputKind.STATE_DIRECT,
+                    quantity_key=QK_DISPLACEMENT,
+                )
+            elif type_key in ("translational_spring", "tire_stiffness"):
+                probe = BaseProbe(
+                    id=f"probe_{comp_id}_force",
+                    name=f"{comp_id} spring force",
+                    quantity="spring_force",
+                    target_component_id=comp_id,
+                    output_kind=OutputKind.DERIVED_ALGEBRAIC,
+                    quantity_key=QK_SPRING_FORCE,
+                )
+            elif type_key == "translational_damper":
+                probe = BaseProbe(
+                    id=f"probe_{comp_id}_force",
+                    name=f"{comp_id} damper force",
+                    quantity="damper_force",
+                    target_component_id=comp_id,
+                    output_kind=OutputKind.DERIVED_ALGEBRAIC,
+                    quantity_key=QK_SPRING_FORCE,
+                )
+            # For other types (ground, sources) — no meaningful probe
+
+            if probe is not None:
+                graph.attach_probe(probe)
+                if first_probe_id is None:
+                    first_probe_id = probe.id
+
+        if first_probe_id is not None:
+            graph.selected_output_id = first_probe_id
+</file>
+
+</files>

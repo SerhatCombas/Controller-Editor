@@ -43,8 +43,8 @@ def _make_single_mass_graph():
 
 def _make_quarter_car_graph():
     """Return the quarter-car template graph."""
-    from app.core.templates import build_quarter_car_template
-    return build_quarter_car_template().graph
+    from tests.fixtures.minimal_wheel_road import build_wheel_road_graph
+    return build_wheel_road_graph()
 
 
 class _MockGraph:

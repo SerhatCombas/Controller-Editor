@@ -34,10 +34,21 @@ from __future__ import annotations
 import unittest
 import sympy
 
-from app.core.templates.single_mass import build_single_mass_template
-from app.core.templates.two_mass import build_two_mass_template
-from app.core.templates.quarter_car import build_quarter_car_template
+from tests.fixtures.graph_factories import build_single_mass_template_def as build_single_mass_template
+from tests.fixtures.graph_factories import build_two_mass_template_def as build_two_mass_template
+from tests.fixtures.minimal_wheel_road import build_wheel_road_graph
+from app.core.templates.template_definition import TemplateDefinition
 from app.core.symbolic.polymorphic_dae_reducer import PolymorphicDAEReducer
+
+
+def _build_quarter_car_fixture():
+    graph = build_wheel_road_graph()
+    return TemplateDefinition(
+        id="quarter_car", name="Quarter-Car Suspension", graph=graph,
+        default_input_id="road_source", default_output_id="body_displacement",
+    )
+
+build_quarter_car_template = _build_quarter_car_fixture
 from app.core.symbolic.output_mapper import OutputMapper
 from app.core.symbolic.tf_builder import (
     SymbolicTFBuilder,

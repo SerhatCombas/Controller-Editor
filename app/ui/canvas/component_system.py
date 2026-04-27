@@ -18,6 +18,7 @@ from PySide6.QtSvg import QSvgRenderer
 
 from app.ui.canvas.electrical_contracts import (
     CAPACITOR_CONTRACT,
+    DC_VOLTAGE_SOURCE_CONTRACT,
     GROUND_CONTRACT,
     INDUCTOR_CONTRACT,
     RESISTOR_CONTRACT,
@@ -219,6 +220,7 @@ class CanvasVisualComponent:
     instance_name: str | None = None
     input_role_order: int | None = None
     output_role_order: int | None = None
+    user_params: dict[str, float] = field(default_factory=dict)
 
     @property
     def assigned_io_role(self) -> ComponentIoRole | None:
@@ -1507,6 +1509,8 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             preferred_io_axis=ComponentIoAxis.HORIZONTAL,
             preferred_symbol_aspect_ratio=120.0 / 56.0,
             minimum_size=(92.0, 44.0),
+            registry_name="electrical.inductor",
+            port_mapping={"positive": "port_a", "negative": "port_b"},
             visual_contract=INDUCTOR_CONTRACT,
         ),
         "diode": ComponentVisualSpec(
@@ -1591,9 +1595,9 @@ def build_component_catalog() -> dict[str, ComponentVisualSpec]:
             preferred_io_axis=ComponentIoAxis.HORIZONTAL,
             preferred_symbol_aspect_ratio=1.0,
             minimum_size=(84.0, 64.0),
-            svg_symbol=component_svg_asset("DC_Voltage_source.svg", normalization_group="electrical_source"),
             registry_name="electrical.voltage_source",
             port_mapping={"positive": "port_a", "negative": "port_b"},
+            visual_contract=DC_VOLTAGE_SOURCE_CONTRACT,
         ),
         "ac_voltage_source": ComponentVisualSpec(
             type_key="ac_voltage_source",

@@ -237,7 +237,11 @@ class CanvasCompiler:
             comp_id  = cv.component_id
             type_map[comp_id] = type_key
 
-            core = self._create_core_component(comp_id, type_key)
+            uparams = getattr(cv, "user_params", None)
+            core = self._create_core_component(
+                comp_id, type_key,
+                user_params=dict(uparams) if uparams else None,
+            )
             if core is not None:
                 graph.add_component(core)
 
@@ -344,6 +348,7 @@ class CanvasCompiler:
         self,
         comp_id: str,
         type_key: str,
+        user_params: dict[str, float] | None = None,
     ) -> BaseComponent | None:
         """Create a core component via registry (preferred) or legacy factory.
 
@@ -367,7 +372,7 @@ class CanvasCompiler:
                     f"not found in ComponentRegistry"
                 )
                 return None
-            return entry.create(comp_id)
+            return entry.create(comp_id, **(user_params or {}))
 
         # --- Legacy path ---
         if spec.core_factory is not None:

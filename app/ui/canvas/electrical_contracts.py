@@ -45,6 +45,7 @@ from app.ui.canvas.visual_contract import (
     ComponentVisualContract,
     ContractPort,
     GArc,
+    GEllipse,
     GLine,
     GPolyline,
     GRectangle,
@@ -183,6 +184,44 @@ GROUND_CONTRACT = ComponentVisualContract(
     min_extent=(100.0, 30.0),
     label_slots={
         "name": LabelSlot(side="bottom", offset=8.0),
+    },
+    domain_key="electrical",
+)
+
+
+# ===================================================================
+# DC Voltage Source  (Modelica: Electrical.Analog.Sources.ConstantVoltage)
+# ===================================================================
+# MSL: circle r=50, center (0,0), white fill, blue stroke.
+#       horizontal line (-90,0)->(90,0) through center.
+#       + sign at x=-70: horiz (-80,20)->(-60,20), vert (-70,30)->(-70,10)
+#       - sign at x=+70: horiz (60,20)->(80,20)
+#       Ports at x=+/-90, extended to +/-100.
+
+DC_VOLTAGE_SOURCE_CONTRACT = ComponentVisualContract(
+    geometry=(
+        # Left stub
+        GLine(start=(-100, 0), end=(-50, 0), stroke_width=2.0, color_key="domain_stroke"),
+        # Circle body (filled)
+        GEllipse(cx=0, cy=0, rx=50, ry=50,
+                 fill_key="domain_fill", stroke_key="domain_stroke", stroke_width=2.0),
+        # Right stub
+        GLine(start=(50, 0), end=(100, 0), stroke_width=2.0, color_key="domain_stroke"),
+        # + sign (positive side, inside circle left)
+        GLine(start=(-30, 0), end=(-10, 0), stroke_width=1.5, color_key="domain_stroke"),
+        GLine(start=(-20, 10), end=(-20, -10), stroke_width=1.5, color_key="domain_stroke"),
+        # - sign (negative side, inside circle right)
+        GLine(start=(10, 0), end=(30, 0), stroke_width=1.5, color_key="domain_stroke"),
+    ),
+    ports={
+        "p": ContractPort("p", x=-100, y=0, side="left"),
+        "n": ContractPort("n", x=100, y=0, side="right"),
+    },
+    default_extent=(120.0, 100.0),
+    min_extent=(80.0, 66.0),
+    label_slots={
+        "name": LabelSlot(side="top", offset=12.0),
+        "parameter": LabelSlot(side="bottom", offset=8.0),
     },
     domain_key="electrical",
 )

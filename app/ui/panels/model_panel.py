@@ -44,6 +44,7 @@ class PaletteNodeSpec:
     title: str
     items: tuple[PaletteItemSpec, ...] = ()
     children: tuple["PaletteNodeSpec", ...] = ()
+    placeholder_text: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,69 +57,131 @@ class WorkspaceLayout:
     updated_at: str = ""
 
 
-PALETTE_GROUP_ASSIGNMENTS: dict[str, tuple[str, str]] = {
-    # --- Contract-ready components only ---
-    # Mechanical Passive (4 contracts)
-    "mass": ("Mechanical", "Passive"),
-    "translational_spring": ("Mechanical", "Passive"),
-    "translational_damper": ("Mechanical", "Passive"),
-    "mechanical_reference": ("Mechanical", "Passive"),
-    # Electrical Passive (3 contracts)
-    "resistor": ("Electrical", "Passive"),
-    "capacitor": ("Electrical", "Passive"),
-    "inductor": ("Electrical", "Passive"),
-    # Electrical Reference (1 contract)
-    "electrical_reference": ("Electrical", "References"),
+# ───────────────────────────────────────────────────────────────────────────
+# Palette hierarchy — 4 levels, mirrors SVGModel/ folder structure.
+#
+# Path tuple: (Domain, Subdomain, Category)
+#
+# Faz 5 — Palette refactor:
+#   - Eski 2-seviye yapı (Domain, Subgroup) → 4-seviye yapı
+#     (Domain, Subdomain, Category)
+#   - SVGModel/ klasör yapısıyla birebir hizalı
+#   - Boş kategoriler "Coming soon" placeholder'ı ile görünür
+#   - Sadece component_catalog()'da gerçekten varolan type_key'ler
+#     mapping'e ekleniyor — backend'de henüz olmayan visual-only
+#     spec'ler (diode, switch, ac_voltage_source, sensor'lar)
+#     ileride backend implementasyonu eklenince listeye dahil edilecek
+# ───────────────────────────────────────────────────────────────────────────
+
+PALETTE_GROUP_ASSIGNMENTS: dict[str, tuple[str, str, str]] = {
+    # ─── Mechanical / Translational / Components ──────────────────────────
+    "mass":                    ("Mechanical", "Translational", "Components"),
+    "translational_spring":    ("Mechanical", "Translational", "Components"),
+    "translational_damper":    ("Mechanical", "Translational", "Components"),
+    "mechanical_reference":    ("Mechanical", "Translational", "Components"),
+
+    # ─── Mechanical / Translational / Sources ─────────────────────────────
+    "ideal_force_source":      ("Mechanical", "Translational", "Sources"),
+
+    # ─── Electrical / Analog / Components ─────────────────────────────────
+    "resistor":                ("Electrical", "Analog", "Components"),
+    "capacitor":               ("Electrical", "Analog", "Components"),
+    "inductor":                ("Electrical", "Analog", "Components"),
+    "electrical_reference":    ("Electrical", "Analog", "Components"),
+
+    # ─── Electrical / Analog / Sources ────────────────────────────────────
+    "dc_voltage_source":       ("Electrical", "Analog", "Sources"),
+    "dc_current_source":       ("Electrical", "Analog", "Sources"),
 }
 
-PALETTE_GROUP_ORDER: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("Mechanical", ("Passive",)),
-    ("Electrical", ("Passive", "References")),
+
+# Hiyerarşinin tam yapısı — boş kategoriler de burada görünür
+# (placeholder_text olarak "Coming soon" gösterilir)
+PALETTE_HIERARCHY_SPEC: tuple[tuple[str, tuple[tuple[str, tuple[str, ...]], ...]], ...] = (
+    (
+        "Mechanical",
+        (
+            ("Translational", ("Components", "Sources", "Sensors", "Examples")),
+            ("Rotational",    ("Components", "Sources", "Sensors", "Examples")),
+        ),
+    ),
+    (
+        "Electrical",
+        (
+            ("Analog",  ("Components", "Sources", "Sensors", "Examples")),
+            ("Digital", ("Components", "Sources", "Sensors", "Examples")),
+        ),
+    ),
 )
 
 
 def build_palette_tree() -> tuple[PaletteNodeSpec, ...]:
+    """Build a 4-level palette tree from PALETTE_GROUP_ASSIGNMENTS.
+
+    Levels: Domain → Subdomain → Category → Item
+    Empty categories are kept visible with a "Coming soon" placeholder
+    so the structure mirrors the planned SVGModel/ hierarchy and
+    future expansion is discoverable.
+    """
     catalog = component_catalog()
-    grouped: dict[tuple[str, str], list[PaletteItemSpec]] = {}
+
+    # Toplama: (Domain, Subdomain, Category) → [items]
+    grouped: dict[tuple[str, str, str], list[PaletteItemSpec]] = {}
     for type_key, spec in catalog.items():
         path = PALETTE_GROUP_ASSIGNMENTS.get(type_key)
         if path is None:
             continue
         grouped.setdefault(path, []).append(PaletteItemSpec(spec.display_name))
 
-    sections: list[PaletteNodeSpec] = []
-    for top_level, subgroup_order in PALETTE_GROUP_ORDER:
-        children: list[PaletteNodeSpec] = []
-        for subgroup in subgroup_order:
-            items = tuple(sorted(grouped.get((top_level, subgroup), []), key=lambda item: item.display_name))
-            children.append(PaletteNodeSpec(title=subgroup, items=items))
-        sections.append(PaletteNodeSpec(title=top_level, children=tuple(children)))
-    return tuple(sections)
+    # Tree yapısını PALETTE_HIERARCHY_SPEC'e göre kur
+    domain_nodes: list[PaletteNodeSpec] = []
+    for domain_title, subdomain_specs in PALETTE_HIERARCHY_SPEC:
+        subdomain_nodes: list[PaletteNodeSpec] = []
+        for subdomain_title, category_titles in subdomain_specs:
+            category_nodes: list[PaletteNodeSpec] = []
+            for category_title in category_titles:
+                key = (domain_title, subdomain_title, category_title)
+                items = tuple(
+                    sorted(
+                        grouped.get(key, []),
+                        key=lambda item: item.display_name,
+                    )
+                )
+                placeholder = "" if items else "Coming soon"
+                category_nodes.append(
+                    PaletteNodeSpec(
+                        title=category_title,
+                        items=items,
+                        placeholder_text=placeholder,
+                    )
+                )
+            # Subdomain'in tüm kategorileri boşsa subdomain de placeholder göstersin
+            subdomain_has_content = any(
+                node.items for node in category_nodes
+            )
+            sd_placeholder = "" if subdomain_has_content else "Coming soon"
+            subdomain_nodes.append(
+                PaletteNodeSpec(
+                    title=subdomain_title,
+                    children=tuple(category_nodes),
+                    placeholder_text=sd_placeholder,
+                )
+            )
+        domain_nodes.append(
+            PaletteNodeSpec(
+                title=domain_title,
+                children=tuple(subdomain_nodes),
+            )
+        )
+    return tuple(domain_nodes)
 
 
 PALETTE_TREE: tuple[PaletteNodeSpec, ...] = build_palette_tree()
 
 
-DEFAULT_LAYOUTS: tuple[WorkspaceLayout, ...] = (
-    WorkspaceLayout(
-        id="default_quarter_car",
-        name="Quarter-Car Suspension",
-        source_type="default",
-        payload={"template_id": "quarter_car"},
-    ),
-    WorkspaceLayout(
-        id="default_single_mass",
-        name="Single Mass-Spring-Damper",
-        source_type="default",
-        payload={"template_id": "single_mass"},
-    ),
-    WorkspaceLayout(
-        id="default_two_mass",
-        name="Two-Mass System",
-        source_type="default",
-        payload={"template_id": "two_mass"},
-    ),
-)
+# Faz 5MVP: All default layouts removed. Users start with a blank workspace
+# and build models by drag-and-drop from the component palette.
+DEFAULT_LAYOUTS: tuple[WorkspaceLayout, ...] = ()
 
 
 def default_saved_layouts_path() -> Path:
@@ -252,6 +315,21 @@ class ComponentPaletteSection(QWidget):
             self.library = ComponentLibraryList()
             self.library.populate(node_spec.items)
             content_layout.addWidget(self.library)
+
+        # Placeholder for empty leaf categories ("Coming soon")
+        self.placeholder_label: QLabel | None = None
+        if (
+            not node_spec.items
+            and not node_spec.children
+            and node_spec.placeholder_text
+        ):
+            self.placeholder_label = QLabel(node_spec.placeholder_text)
+            self.placeholder_label.setStyleSheet(
+                "color: rgba(255, 255, 255, 0.35); "
+                "font-style: italic; "
+                "padding: 4px 8px;"
+            )
+            content_layout.addWidget(self.placeholder_label)
 
         for child_index, child in enumerate(node_spec.children):
             child_section = ComponentPaletteSection(child, expanded=child_index == 0, depth=depth + 1)
@@ -438,7 +516,8 @@ class ModelPanel(QWidget):
         self.palette_search.textChanged.connect(self.palette.apply_filter)
 
     def load_default_model(self) -> None:
-        self.load_layout_by_id("default_quarter_car")
+        """Start with a blank workspace (Faz 5MVP: no default template)."""
+        self.canvas.clear_workspace()
 
     def new_workspace(self) -> None:
         self.canvas.clear_workspace()

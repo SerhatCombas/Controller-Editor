@@ -17,6 +17,12 @@ Backward compatibility
 ``probe.quantity`` (Wave 2 legacy string) is kept unchanged.
 ``infer_kind()`` maps it to ``OutputKind`` for callers that only have the
 legacy string.  New code should set ``output_kind`` on the probe directly.
+
+Faz 5 extension
+───────────────
+Electrical QK constants added (QK_CURRENT, QK_CAPACITOR_VOLTAGE, QK_VOLTAGE,
+QK_RELATIVE_VOLTAGE) so the RLC template (and future electrical templates)
+can attach probes following the same pattern as mechanical templates.
 """
 from __future__ import annotations
 
@@ -63,19 +69,29 @@ class OutputKind(Enum):
 # quantity_key constants (fine-grained strings within each kind)
 # ---------------------------------------------------------------------------
 
-# STATE_DIRECT
+# STATE_DIRECT — mechanical
 QK_DISPLACEMENT = "displacement"
 QK_VELOCITY     = "velocity"
 
-# STATE_RELATIVE
+# STATE_DIRECT — electrical (Faz 5)
+QK_CURRENT           = "current"
+QK_CAPACITOR_VOLTAGE = "capacitor_voltage"
+
+# STATE_RELATIVE — mechanical
 QK_RELATIVE_DISPLACEMENT = "relative_displacement"
 QK_RELATIVE_VELOCITY     = "relative_velocity"
 
-# DERIVED_ALGEBRAIC
+# STATE_RELATIVE — electrical (Faz 5)
+QK_RELATIVE_VOLTAGE      = "relative_voltage"
+
+# DERIVED_ALGEBRAIC — mechanical
 QK_SPRING_FORCE  = "spring_force"
 QK_DAMPER_FORCE  = "damper_force"
 
-# DERIVED_DYNAMIC
+# DERIVED_ALGEBRAIC — electrical (Faz 5)
+QK_VOLTAGE       = "voltage"
+
+# DERIVED_DYNAMIC — mechanical
 QK_ACCELERATION = "acceleration"
 
 
@@ -84,6 +100,7 @@ QK_ACCELERATION = "acceleration"
 # ---------------------------------------------------------------------------
 
 _QUANTITY_TO_KIND: dict[str, OutputKind] = {
+    # Mechanical
     "displacement":          OutputKind.STATE_DIRECT,
     "velocity":              OutputKind.STATE_DIRECT,
     "relative_displacement": OutputKind.STATE_RELATIVE,
@@ -92,10 +109,18 @@ _QUANTITY_TO_KIND: dict[str, OutputKind] = {
     "spring_force":          OutputKind.DERIVED_ALGEBRAIC,
     "damper_force":          OutputKind.DERIVED_ALGEBRAIC,
     "force":                 OutputKind.DERIVED_ALGEBRAIC,  # generic force probe
+
+    # Electrical (Faz 5)
+    "current":               OutputKind.STATE_DIRECT,
+    "capacitor_voltage":     OutputKind.STATE_DIRECT,
+    "voltage":               OutputKind.DERIVED_ALGEBRAIC,
+    "relative_voltage":      OutputKind.STATE_RELATIVE,
+
     "unsupported":           OutputKind.UNSUPPORTED,
 }
 
 _QUANTITY_TO_KEY: dict[str, str] = {
+    # Mechanical
     "displacement":          QK_DISPLACEMENT,
     "velocity":              QK_VELOCITY,
     "relative_displacement": QK_RELATIVE_DISPLACEMENT,
@@ -104,6 +129,12 @@ _QUANTITY_TO_KEY: dict[str, str] = {
     "spring_force":          QK_SPRING_FORCE,
     "damper_force":          QK_DAMPER_FORCE,
     "force":                 QK_SPRING_FORCE,  # default interpretation
+
+    # Electrical (Faz 5)
+    "current":               QK_CURRENT,
+    "capacitor_voltage":     QK_CAPACITOR_VOLTAGE,
+    "voltage":               QK_VOLTAGE,
+    "relative_voltage":      QK_RELATIVE_VOLTAGE,
 }
 
 

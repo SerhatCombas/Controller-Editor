@@ -390,18 +390,18 @@ class TestTFTemplateIntegration(unittest.TestCase):
         self.assertTrue(result.is_proper)
 
     def test_integration_single_mass(self) -> None:
-        from app.core.templates.single_mass import build_single_mass_template
-        self._run_template(build_single_mass_template,
+        from tests.fixtures.graph_factories import build_single_mass_template_def
+        self._run_template(build_single_mass_template_def,
                            probe_name="mass_displacement",
                            input_id="f_input_force_out")
 
     def test_integration_two_mass(self) -> None:
-        from app.core.templates.two_mass import build_two_mass_template
+        from tests.fixtures.graph_factories import build_two_mass_template_def
         from app.core.symbolic.polymorphic_dae_reducer import PolymorphicDAEReducer
         from app.core.symbolic.output_mapper import OutputMapper
         from app.core.symbolic.tf_builder import SymbolicTFBuilder, TransferFunctionResult
 
-        template = build_two_mass_template()
+        template = build_two_mass_template_def()
         ode = PolymorphicDAEReducer().reduce(template.graph, _StubSym())
         # No probes with quantity=displacement in two_mass? Build C directly.
         output_expr = _make_displacement_output(
@@ -419,8 +419,17 @@ class TestTFTemplateIntegration(unittest.TestCase):
         self.assertEqual(result.order, 4)
 
     def test_integration_quarter_car(self) -> None:
-        from app.core.templates.quarter_car import build_quarter_car_template
-        self._run_template(build_quarter_car_template,
+        from tests.fixtures.minimal_wheel_road import build_wheel_road_graph
+        from app.core.templates.template_definition import TemplateDefinition
+
+        def _qc():
+            graph = build_wheel_road_graph()
+            return TemplateDefinition(
+                id="quarter_car", name="Quarter-Car Suspension", graph=graph,
+                default_input_id="road_source", default_output_id="body_displacement",
+            )
+
+        self._run_template(_qc,
                            probe_name="body_displacement",
                            input_id="r_road_source")
 

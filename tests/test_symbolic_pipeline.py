@@ -10,9 +10,20 @@ from app.core.probes import RelativeProbe
 from app.core.symbolic.dae_reducer import DAEReducer
 from app.core.symbolic.equation_builder import EquationBuilder
 from app.core.symbolic.state_space_builder import StateSpaceBuilder
-from app.core.templates.quarter_car import build_quarter_car_template
-from app.core.templates.single_mass import build_single_mass_template
-from app.core.templates.two_mass import build_two_mass_template
+from tests.fixtures.graph_factories import build_single_mass_template_def as build_single_mass_template
+from tests.fixtures.graph_factories import build_two_mass_template_def as build_two_mass_template
+from tests.fixtures.minimal_wheel_road import build_wheel_road_graph
+from app.core.templates.template_definition import TemplateDefinition
+
+
+def _build_quarter_car_fixture():
+    graph = build_wheel_road_graph()
+    return TemplateDefinition(
+        id="quarter_car", name="Quarter-Car Suspension", graph=graph,
+        default_input_id="road_source", default_output_id="body_displacement",
+    )
+
+build_quarter_car_template = _build_quarter_car_fixture
 
 
 class SymbolicPipelineTests(unittest.TestCase):

@@ -393,8 +393,8 @@ class TestSmokeEndToEnd(unittest.TestCase):
     def test_linearity_classifier_on_quarter_car(self):
         """Smoke: LinearityClassifier runs on quarter-car without errors."""
         from app.core.symbolic.linearity_classifier import LinearityClassifier
-        from app.core.templates import build_quarter_car_template
-        graph = build_quarter_car_template().graph
+        from tests.fixtures.minimal_wheel_road import build_wheel_road_graph
+        graph = build_wheel_road_graph()
         sc = LinearityClassifier().classify(graph)
         self.assertTrue(sc.is_lti_candidate)
         self.assertEqual(sc.verdict_confidence, "component_level_only")
@@ -415,13 +415,12 @@ class TestSmokeEndToEnd(unittest.TestCase):
         """
         from app.core.symbolic.reducer_parity_harness import ReducerParityHarness
         from app.core.state.feature_flags import FeatureFlags, ParityMode
-        from app.core.templates import build_quarter_car_template
+        from tests.fixtures.minimal_wheel_road import build_wheel_road_graph
 
         harness = ReducerParityHarness(
             flags=FeatureFlags(parity_mode=ParityMode.SHADOW)
         )
-        template = build_quarter_car_template()
-        graph = template.graph
+        graph = build_wheel_road_graph()
 
         # Build symbolic system via non-parsing helpers (sandbox workaround).
         # Input variable order must match legacy reducer's component_records

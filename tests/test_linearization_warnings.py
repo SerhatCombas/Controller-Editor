@@ -133,34 +133,11 @@ class TestEmitLinearizationWarning(unittest.TestCase):
         self.assertIn("'w2'", msg)
 
 
-class TestSymbolicStateSpaceBackendMetadata(unittest.TestCase):
-    """SymbolicStateSpaceBackend.get_state_space() exposes the trigger
-    list under metadata[linearized_contact_mode_b]."""
-
-    def test_default_template_yields_empty_trigger_list(self):
-        """The legacy quarter-car template ships in Mode A; the symbolic
-        backend's metadata list must be empty so UI panels render no
-        badge for a default-configured template."""
-        from app.services.simulation_backend import SymbolicStateSpaceBackend
-        result = SymbolicStateSpaceBackend().get_state_space(
-            input_channel="road_displacement",
-        )
-        self.assertEqual(
-            result.metadata.get(METADATA_KEY_LINEARIZED_MODE_B), [],
-        )
-
-
-class TestSymbolicStateSpaceRuntimeBackendMetadata(unittest.TestCase):
-    """SymbolicStateSpaceRuntimeBackend stashes the trigger list on
-    self.metadata so simulation-service / UI code can read it."""
-
-    def test_default_template_runtime_yields_empty_trigger_list(self):
-        from app.core.models.quarter_car_model import QuarterCarParameters
-        from app.services.runtime_backend import SymbolicStateSpaceRuntimeBackend
-        backend = SymbolicStateSpaceRuntimeBackend(QuarterCarParameters())
-        self.assertEqual(
-            backend.metadata.get(METADATA_KEY_LINEARIZED_MODE_B), [],
-        )
+# Faz 5MVP: TestSymbolicStateSpaceBackendMetadata and
+# TestSymbolicStateSpaceRuntimeBackendMetadata removed — they depended on
+# simulation_backend.py and runtime_backend.py which are deleted.
+# Linearization warning tests for the new GenericStaticBackend will be
+# added in Faz 5MVP-1.
 
 
 if __name__ == "__main__":

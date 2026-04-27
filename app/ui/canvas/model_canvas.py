@@ -7,12 +7,65 @@ from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QAction, QColor, QContextMenuEvent, QDragEnterEvent, QDropEvent, QKeyEvent, QMouseEvent, QPainter, QPainterPath, QPen, QWheelEvent
 from PySide6.QtWidgets import QMenu, QWidget
 
-from app.services.signal_catalog import (
-    can_component_be_input,
-    can_component_be_output,
-    component_to_input_signal,
-    component_to_output_signal,
-)
+# ---------------------------------------------------------------------------
+# Generic I/O role helpers (replace deleted signal_catalog.py)
+# ---------------------------------------------------------------------------
+
+_INPUT_TYPE_KEYS = frozenset({
+    "ideal_force_source", "mechanical_random_reference",
+    "dc_voltage_source", "dc_current_source",
+})
+
+_OUTPUT_TYPE_KEYS = frozenset({
+    "mass", "wheel",
+    "translational_spring", "translational_damper",
+    "resistor", "capacitor", "inductor",
+})
+
+
+@dataclass(frozen=True, slots=True)
+class _SceneSignalBinding:
+    component_id: str
+    signal_id: str
+    label: str
+
+
+def can_component_be_input(
+    template_id: str, *, component_id: str, component_type_key: str,
+) -> bool:
+    return component_type_key in _INPUT_TYPE_KEYS
+
+
+def can_component_be_output(
+    template_id: str, *, component_id: str, component_type_key: str,
+    scene_components: tuple[tuple[str, str], ...] = (),
+) -> bool:
+    return component_type_key in _OUTPUT_TYPE_KEYS
+
+
+def component_to_input_signal(
+    template_id: str, *, component_id: str, component_type_key: str,
+) -> _SceneSignalBinding | None:
+    if component_type_key not in _INPUT_TYPE_KEYS:
+        return None
+    return _SceneSignalBinding(
+        component_id=component_id,
+        signal_id=component_id,
+        label=f"{component_type_key} ({component_id})",
+    )
+
+
+def component_to_output_signal(
+    template_id: str, *, component_id: str, component_type_key: str,
+    scene_components: tuple[tuple[str, str], ...] = (),
+) -> _SceneSignalBinding | None:
+    if component_type_key not in _OUTPUT_TYPE_KEYS:
+        return None
+    return _SceneSignalBinding(
+        component_id=component_id,
+        signal_id=f"{component_id}_displacement",
+        label=f"{component_type_key} ({component_id})",
+    )
 from app.ui.canvas.component_system import (
     CanvasVisualComponent,
     CanvasWireConnection,
@@ -148,81 +201,15 @@ class ModelCanvas(QWidget):
             "wheel_rotation": 0.0,
         }
 
-    def load_default_quarter_car_layout(self) -> None:
-        self._visual_profile = self._build_visual_profile("quarter_car")
-        components = [
-            self._component("Mechanical Random Reference", "road_source", QPointF(60.0, 710.0), (130.0, 80.0), deletable=False),
-            self._component("Mass", "body_mass", QPointF(214.0, 100.0), (172.0, 92.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Translational Damper", "suspension_damper", QPointF(151.0, 235.0), (80.0, 142.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Translational Spring", "suspension_spring", QPointF(261.0, 235.0), (78.0, 148.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Wheel", "wheel_mass", QPointF(185.0, 420.0), (230.0, 230.0), deletable=False),
-            self._component("Tire Stiffness", "tire_stiffness", QPointF(235.0, 690.0), (130.0, 90.0), deletable=False),
-            self._component("Ideal Force Source", "body_force", QPointF(369.0, 235.0), (80.0, 108.0), deletable=False),
-            self._component("Mechanical Translational Reference", "ground", QPointF(170.0, 820.0), (260.0, 36.0), deletable=False, orientation=Orientation.DEG_0),
-        ]
-        wires = [
-            CanvasWireConnection("body_mass", "bottom", "suspension_damper", "R"),
-            CanvasWireConnection("body_mass", "bottom", "suspension_spring", "R"),
-            CanvasWireConnection("suspension_damper", "C", "wheel_mass", "top"),
-            CanvasWireConnection("suspension_spring", "C", "wheel_mass", "top"),
-            CanvasWireConnection("wheel_mass", "bottom", "tire_stiffness", "R"),
-            CanvasWireConnection("road_source", "output", "tire_stiffness", "C"),
-            CanvasWireConnection("body_mass", "bottom", "body_force", "R"),
-            CanvasWireConnection("body_force", "C", "wheel_mass", "top"),
-        ]
-        self._apply_loaded_layout(components, wires)
-
-    def load_single_mass_layout(self) -> None:
-        self._visual_profile = self._build_visual_profile("single_mass")
-        components = [
-            self._component("Mechanical Random Reference", "input_force", QPointF(60.0, 140.0), (130.0, 80.0), deletable=False),
-            self._component("Mass", "mass", QPointF(214.0, 140.0), (172.0, 92.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Translational Spring", "spring", QPointF(200.0, 280.0), (78.0, 148.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Translational Damper", "damper", QPointF(320.0, 280.0), (80.0, 142.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Mechanical Translational Reference", "ground", QPointF(170.0, 470.0), (260.0, 36.0), deletable=False, orientation=Orientation.DEG_0),
-        ]
-        wires = [
-            CanvasWireConnection("input_force", "output", "mass", "top"),
-            CanvasWireConnection("mass", "bottom", "spring", "R"),
-            CanvasWireConnection("mass", "bottom", "damper", "R"),
-            CanvasWireConnection("spring", "C", "ground", "ref"),
-            CanvasWireConnection("damper", "C", "ground", "ref"),
-        ]
-        self._apply_loaded_layout(components, wires)
-
-    def load_two_mass_layout(self) -> None:
-        self._visual_profile = self._build_visual_profile("two_mass")
-        components = [
-            self._component("Mechanical Random Reference", "input_force", QPointF(60.0, 100.0), (130.0, 80.0), deletable=False),
-            self._component("Mass", "mass_1", QPointF(214.0, 100.0), (172.0, 92.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Mass", "mass_2", QPointF(214.0, 400.0), (172.0, 92.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Translational Spring", "spring_coupling", QPointF(200.0, 222.0), (78.0, 148.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Translational Damper", "damper_coupling", QPointF(320.0, 222.0), (80.0, 142.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Translational Spring", "spring_ground", QPointF(200.0, 522.0), (78.0, 148.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Translational Damper", "damper_ground", QPointF(320.0, 522.0), (80.0, 142.0), deletable=False, orientation=Orientation.DEG_90),
-            self._component("Mechanical Translational Reference", "ground", QPointF(170.0, 700.0), (260.0, 36.0), deletable=False),
-        ]
-        wires = [
-            CanvasWireConnection("input_force", "output", "mass_1", "top"),
-            CanvasWireConnection("mass_1", "bottom", "spring_coupling", "R"),
-            CanvasWireConnection("mass_1", "bottom", "damper_coupling", "R"),
-            CanvasWireConnection("spring_coupling", "C", "mass_2", "top"),
-            CanvasWireConnection("damper_coupling", "C", "mass_2", "top"),
-            CanvasWireConnection("mass_2", "bottom", "spring_ground", "R"),
-            CanvasWireConnection("mass_2", "bottom", "damper_ground", "R"),
-            CanvasWireConnection("spring_ground", "C", "ground", "ref"),
-            CanvasWireConnection("damper_ground", "C", "ground", "ref"),
-        ]
-        self._apply_loaded_layout(components, wires)
+    # Faz 5MVP: All hardcoded layout methods removed.
+    # Layouts are now built by drag-and-drop from the component palette,
+    # or loaded from user-saved workspace snapshots.
 
     def load_template_layout(self, template_id: str) -> None:
-        if template_id == "single_mass":
-            self.load_single_mass_layout()
-            return
-        if template_id == "two_mass":
-            self.load_two_mass_layout()
-            return
-        self.load_default_quarter_car_layout()
+        """Load a template layout by ID (placeholder for future preset system)."""
+        # No built-in templates remain after Faz 5MVP cleanup.
+        # User-saved snapshots go through load_workspace_snapshot() instead.
+        pass
 
     def _apply_loaded_layout(
         self,
@@ -677,6 +664,11 @@ class ModelCanvas(QWidget):
             "source_component": component.is_source_component(),
             "source_type": component.source_type() or "-",
             "status_text": self._selection_status_override or ("Editable" if component.deletable else "Locked template component"),
+            "type_key": component.spec.type_key,
+            "registry_name": component.spec.registry_name or "",
+            "user_params": dict(component.user_params),
+            "default_params": self._get_default_params(component),
+            "_component_ref": component,
         }
 
     def select_component(self, index: int | None) -> None:
@@ -1338,6 +1330,20 @@ class ModelCanvas(QWidget):
         }.get(spec_display_name, spec_display_name.replace(" ", ""))
         existing = sum(1 for component in self._components if (component.instance_name or "").startswith(label))
         return f"{label}{existing + 1}"
+
+    @staticmethod
+    def _get_default_params(component) -> dict[str, float]:
+        """Get default parameter values from registry for a component."""
+        registry_name = component.spec.registry_name
+        if not registry_name:
+            return {}
+        try:
+            from app.core.registry import default_registry
+            registry = default_registry()
+            entry = registry.get(registry_name)
+            return dict(entry.default_params) if entry else {}
+        except Exception:
+            return {}
 
     def _empty_selection_details(self) -> dict[str, object]:
         if self._selected_wire_index is not None:

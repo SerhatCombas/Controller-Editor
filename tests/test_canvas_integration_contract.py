@@ -1999,11 +1999,11 @@ class TestPaletteContractRendering:
     """Structural tests for palette/library contract-first rendering."""
 
     def test_contract_components_have_visual_contract(self):
-        """All 8 contract components (4 translational + 4 electrical) should have visual_contract set."""
+        """All 9 contract components (4 translational + 5 electrical) should have visual_contract set."""
         cs = _import_component_system()
         contract_keys = (
             "mass", "translational_spring", "translational_damper", "mechanical_reference",
-            "resistor", "capacitor", "inductor", "electrical_reference",
+            "resistor", "capacitor", "inductor", "dc_voltage_source", "electrical_reference",
         )
         for key in contract_keys:
             spec = cs.COMPONENT_CATALOG[key]
@@ -2023,7 +2023,7 @@ class TestPaletteContractRendering:
         contract_keys = (
             "mass", "translational_spring", "translational_damper",
             "mechanical_reference", "resistor", "capacitor", "inductor",
-            "electrical_reference",
+            "dc_voltage_source", "electrical_reference",
         )
         for key in contract_keys:
             spec = cs.COMPONENT_CATALOG[key]
@@ -2055,19 +2055,22 @@ class TestElectricalContracts:
 
     def test_all_electrical_contracts_exist(self):
         ec = _import_electrical_contracts()
-        for attr in ("RESISTOR_CONTRACT", "CAPACITOR_CONTRACT", "INDUCTOR_CONTRACT", "GROUND_CONTRACT"):
+        for attr in ("RESISTOR_CONTRACT", "CAPACITOR_CONTRACT", "INDUCTOR_CONTRACT",
+                      "GROUND_CONTRACT", "DC_VOLTAGE_SOURCE_CONTRACT"):
             assert hasattr(ec, attr), f"Missing {attr}"
 
     def test_all_contracts_are_electrical_domain(self):
         ec = _import_electrical_contracts()
-        for name in ("RESISTOR_CONTRACT", "CAPACITOR_CONTRACT", "INDUCTOR_CONTRACT", "GROUND_CONTRACT"):
+        for name in ("RESISTOR_CONTRACT", "CAPACITOR_CONTRACT", "INDUCTOR_CONTRACT",
+                      "GROUND_CONTRACT", "DC_VOLTAGE_SOURCE_CONTRACT"):
             contract = getattr(ec, name)
             assert contract.domain_key == "electrical", f"{name} domain != electrical"
 
     def test_two_terminal_ports_at_edges(self):
-        """Resistor, capacitor, inductor have p at left (x=-100) and n at right (x=+100)."""
+        """Resistor, capacitor, inductor, dc_voltage_source have p at left and n at right."""
         ec = _import_electrical_contracts()
-        for name in ("RESISTOR_CONTRACT", "CAPACITOR_CONTRACT", "INDUCTOR_CONTRACT"):
+        for name in ("RESISTOR_CONTRACT", "CAPACITOR_CONTRACT", "INDUCTOR_CONTRACT",
+                      "DC_VOLTAGE_SOURCE_CONTRACT"):
             contract = getattr(ec, name)
             assert "p" in contract.ports, f"{name} missing port p"
             assert "n" in contract.ports, f"{name} missing port n"
@@ -2079,7 +2082,8 @@ class TestElectricalContracts:
     def test_two_terminal_normalized_anchors(self):
         """Horizontal canonical: p -> (0.0, 0.5) left, n -> (1.0, 0.5) right."""
         ec = _import_electrical_contracts()
-        for name in ("RESISTOR_CONTRACT", "CAPACITOR_CONTRACT", "INDUCTOR_CONTRACT"):
+        for name in ("RESISTOR_CONTRACT", "CAPACITOR_CONTRACT", "INDUCTOR_CONTRACT",
+                      "DC_VOLTAGE_SOURCE_CONTRACT"):
             contract = getattr(ec, name)
             na = contract.to_normalized_anchor("p")
             assert na == pytest.approx((0.0, 0.5), abs=1e-6), f"{name} p anchor wrong"
@@ -2127,14 +2131,23 @@ class TestElectricalContracts:
     def test_label_slots_present(self):
         """All contracts should have a 'name' label slot."""
         ec = _import_electrical_contracts()
-        for name in ("RESISTOR_CONTRACT", "CAPACITOR_CONTRACT", "INDUCTOR_CONTRACT", "GROUND_CONTRACT"):
+        for name in ("RESISTOR_CONTRACT", "CAPACITOR_CONTRACT", "INDUCTOR_CONTRACT",
+                      "GROUND_CONTRACT", "DC_VOLTAGE_SOURCE_CONTRACT"):
             contract = getattr(ec, name)
             assert "name" in contract.label_slots, f"{name} missing 'name' label slot"
 
+    def test_dc_voltage_source_has_circle(self):
+        """DC voltage source should have an ellipse (circle) body."""
+        vc = _import_visual_contract()
+        ec = _import_electrical_contracts()
+        ellipses = [p for p in ec.DC_VOLTAGE_SOURCE_CONTRACT.geometry if isinstance(p, vc.GEllipse)]
+        assert len(ellipses) >= 1, "DC voltage source should have at least one ellipse"
+        assert ellipses[0].fill_key == "domain_fill"
+
     def test_electrical_in_catalog_have_contracts(self):
-        """Electrical passive specs in catalog should have visual_contract."""
+        """Electrical specs in catalog should have visual_contract."""
         cs = _import_component_system()
-        for key in ("resistor", "capacitor", "inductor", "electrical_reference"):
+        for key in ("resistor", "capacitor", "inductor", "dc_voltage_source", "electrical_reference"):
             spec = cs.COMPONENT_CATALOG[key]
             assert spec.visual_contract is not None, (
                 f"{key} should have visual_contract for contract-first rendering"

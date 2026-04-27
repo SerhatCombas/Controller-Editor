@@ -334,14 +334,13 @@ class TestInputRouterIntegration(unittest.TestCase):
     def test_single_mass_template_has_one_force_source(self):
         """The single_mass template contains exactly one StepForce source."""
         try:
-            from app.core.templates.single_mass import build_single_mass_template
+            from tests.fixtures.graph_factories import build_single_mass_graph
         except ImportError:
             self.skipTest("Template or dependencies not available")
 
         from app.core.symbolic.input_router import InputRouter
 
-        template = build_single_mass_template()
-        graph = template.graph
+        graph = build_single_mass_graph()
 
         # Build a minimal node_index: just the mass's port_a node
         mass_comp = graph.components.get("mass")
@@ -371,14 +370,13 @@ class TestInputRouterIntegration(unittest.TestCase):
     def test_router_result_node_index_matches_input(self):
         """RoutingResult preserves the exact node_index passed in."""
         try:
-            from app.core.templates.single_mass import build_single_mass_template
+            from tests.fixtures.graph_factories import build_single_mass_graph
         except ImportError:
             self.skipTest("Template not available")
 
         from app.core.symbolic.input_router import InputRouter
 
-        template = build_single_mass_template()
-        graph = template.graph
+        graph = build_single_mass_graph()
         mass_comp = graph.components.get("mass")
         if mass_comp is None:
             self.skipTest("Mass component not found")
